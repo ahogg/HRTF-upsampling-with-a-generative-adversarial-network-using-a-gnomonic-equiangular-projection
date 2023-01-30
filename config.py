@@ -14,14 +14,14 @@ class Config:
         self.model_path = f'runs/06-increase-LRg-train'
 
         # data dirs
-        self.train_hrtf_dir = 'projected_data/train-merge'
-        self.valid_hrtf_dir = 'projected_data/valid-merge'
+        self.train_hrtf_dir = '/home/aos13/HRTF-GANs-27Sep22-prep-for-publication/projected_data-merge/train-merge'
+        self.valid_hrtf_dir = '/home/aos13/HRTF-GANs-27Sep22-prep-for-publication/projected_data-merge/valid-merge'
         if using_hpc:
             self.train_hrtf_dir = "HRTF-GANs/" + self.train_hrtf_dir
             self.valid_hrtf_dir = "HRTF-GANs/" + self.valid_hrtf_dir
             self.raw_hrtf_dir = Path('../projects/sonicom/live/HRTF Datasets')
         else:
-            self.raw_hrtf_dir = Path('/Users/madsjenkins/Imperial/HRTF/Volumes/home/HRTF Datasets')
+            self.raw_hrtf_dir = Path('/home/aos13/HRTF_datasets')
 
         # Data processing parameters
         self.hrtf_size = 16
