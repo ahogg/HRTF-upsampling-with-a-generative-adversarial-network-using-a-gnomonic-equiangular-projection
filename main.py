@@ -66,8 +66,7 @@ def main(mode, tag, using_hpc):
         # collect all train_hrtfs to get mean and sd
         train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
         j = 0
-        # for i in range(len(ds)):
-        for i in range(40):
+        for i in range(len(ds)):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
