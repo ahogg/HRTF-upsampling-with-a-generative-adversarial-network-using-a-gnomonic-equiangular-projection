@@ -1,9 +1,14 @@
 import cmath
 import pickle
+import os
 
+import sofar as sf
 import numpy as np
-import scipy
 import torch
+import scipy
+from scipy.signal import hilbert
+import shutil
+from pathlib import Path
 
 from preprocessing.barycentric_calcs import calc_barycentric_coordinates, get_triangle_vertices
 from preprocessing.convert_coordinates import convert_cube_to_sphere
@@ -23,6 +28,116 @@ def load_data(data_folder, load_function, domain, side, subject_ids=None):
                          feature_spec={"hrirs": {'side': side, 'domain': domain}},
                          target_spec={"side": {}},
                          group_spec={"subject": {}})
+
+
+def merge_left_right_hrtfs(input_dir, output_dir):
+    # Clear/Create directories
+    shutil.rmtree(Path(output_dir), ignore_errors=True)
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    hrtf_file_names = [os.path.join(input_dir, hrtf_file_name) for hrtf_file_name in os.listdir(input_dir)]
+
+    hrtf_dict_left = {}
+    hrtf_dict_right = {}
+    for f in hrtf_file_names:
+        with open(f, "rb") as file:
+            hrtf = pickle.load(file)
+
+        # add to dict for right ears
+        if f[-5:] == 'right':
+            subj_id = int(f.split("_")[-1][:-5])
+            hrtf_dict_right[subj_id] = hrtf
+        # add to dict for left ears
+        elif f[-4:] == 'left':
+            subj_id = int(f.split("_")[-1][:-4])
+            hrtf_dict_left[subj_id] = hrtf
+
+    for subj_id in hrtf_dict_right.keys():
+        hrtf_r = hrtf_dict_right[subj_id]
+        hrtf_l = hrtf_dict_left[subj_id]
+        hrtf_merged = torch.cat((hrtf_l, hrtf_r), dim=3)
+        with open(output_dir + "/ARI_" + str(subj_id), "wb") as file:
+            pickle.dump(hrtf_merged, file)
+
+
+def add_ITD(az, el, hrir, side, fs=48000, r=0.0875, c=343):
+
+    az = np.radians(az)
+    el = np.radians(el)
+    interaural_azimuth = np.arcsin(np.sin(az) * np.cos(el))
+    delay_in_sec = (r / c) * (interaural_azimuth + np.sin(interaural_azimuth))
+    fractional_delay = delay_in_sec * fs
+
+    sample_delay = int(abs(fractional_delay))
+
+    if (delay_in_sec > 0 and side == 'right') or (delay_in_sec < 0 and side == 'left'):
+        N = len(hrir)
+        delayed_hrir = np.zeros(N)
+        delayed_hrir[sample_delay:] = hrir[0:N - sample_delay]
+        sofa_delay = sample_delay
+    else:
+        sofa_delay = 0
+        delayed_hrir = hrir
+
+    return delayed_hrir, sofa_delay
+
+
+def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output):
+    left_full_hrtf = clean_hrtf[:, :, :, :128]
+    right_full_hrtf = clean_hrtf[:, :, :, 128:]
+
+    full_hrir = []
+    source_positions = []
+    delays = []
+    count = 0
+    for panel, x, y in cube_coords:
+        # based on cube coordinates, get indices for magnitudes list of lists
+        i = panel - 1
+        j = round(config.hrtf_size * (x - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
+        k = round(config.hrtf_size * (y - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
+
+        el = np.degrees(sphere_coords[count][0])
+        az = np.degrees(sphere_coords[count][1])
+        source_positions.append([az + 360 if az < 0 else az, el, 1.2])
+        count += 1
+
+        left_hrtf = np.array(left_full_hrtf[i, j, k])
+        left_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(left_hrtf))))
+        left_hrir = scipy.fft.irfft(np.abs(left_hrtf) * np.exp(1j * left_hrtf_minimum_phase))[:128]
+
+        right_hrtf = np.array(right_full_hrtf[i, j, k])
+        right_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
+        right_hrir = scipy.fft.irfft(np.abs(right_hrtf) * np.exp(1j * right_hrtf_minimum_phase))[:128]
+
+        left_hrir, left_sample_delay = add_ITD(az, el, left_hrir, side='left')
+        right_hrir, right_sample_delay = add_ITD(az, el, right_hrir, side='right')
+
+        full_hrir.append([left_hrir, right_hrir])
+        delays.append([left_sample_delay, right_sample_delay])
+
+    sofa = sf.Sofa("SimpleFreeFieldHRIR")
+    sofa.Data_IR = full_hrir
+    sofa.Data_SamplingRate = 48000
+    sofa.Data_Delay = delays
+    sofa.SourcePosition = source_positions
+    sf.write_sofa(sofa_path_output, sofa)
+
+
+def convert_to_sofa(hrtf_dir, config, cube, sphere):
+    # Clear/Create directories
+    sofa_path_output = hrtf_dir + '/sofa/'
+    shutil.rmtree(Path(sofa_path_output), ignore_errors=True)
+    Path(sofa_path_output).mkdir(parents=True, exist_ok=True)
+
+    hrtf_file_names = [os.path.join(hrtf_dir, hrtf_file_name) for hrtf_file_name in os.listdir(hrtf_dir)
+                       if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name))]
+
+    for f in hrtf_file_names:
+        with open(f, "rb") as file:
+            hrtf = pickle.load(file)
+            sofa_filename_output = os.path.basename(file.name) + '.sofa'
+            sofa_output = sofa_path_output + sofa_filename_output
+            save_sofa(hrtf, config, cube, sphere, sofa_output)
 
 
 def generate_euclidean_cube(measured_coords, filename, edge_len=16):

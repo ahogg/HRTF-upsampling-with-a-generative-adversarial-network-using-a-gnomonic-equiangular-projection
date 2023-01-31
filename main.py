@@ -4,13 +4,16 @@ import pickle
 import torch
 from hrtfdata.torch.full import ARI
 import numpy as np
+from pathlib import Path
+import shutil
 
 from config import Config
 from model.train import train
 from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
-from preprocessing.utils import interpolate_fft, generate_euclidean_cube, load_data
+from preprocessing.utils import interpolate_fft, generate_euclidean_cube, \
+    load_data, merge_left_right_hrtfs, convert_to_sofa
 from model import util
 
 PI_4 = np.pi / 4
@@ -50,6 +53,12 @@ def main(mode, tag, using_hpc):
         with open(projection_filename, "rb") as file:
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
+        # Clear/Create directories
+        shutil.rmtree(Path(config.train_hrtf_dir), ignore_errors=True)
+        shutil.rmtree(Path(config.valid_hrtf_dir), ignore_errors=True)
+        Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
+        Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
+
         # Split data into train and test sets
         train_size = int(len(set(ds.subject_ids)) * config.train_samples_ratio)
         train_sample = np.random.choice(list(set(ds.subject_ids)), train_size, replace=False)
@@ -57,35 +66,39 @@ def main(mode, tag, using_hpc):
         # collect all train_hrtfs to get mean and sd
         train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
         j = 0
-        for i in range(len(ds)):
+        # for i in range(len(ds)):
+        for i in range(40):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
                                          config.hrtf_size)
+
             # save cleaned hrtfdata
             if ds[i]['group'] in train_sample:
-                projected_dir = "projected_data/train/"
+                projected_dir = config.train_hrtf_dir
                 train_hrtfs[j] = clean_hrtf
                 j += 1
             else:
-                projected_dir = "projected_data/valid/"
-
-            if using_hpc:
-                projected_dir = "HRTF-GANs/" + projected_dir
+                projected_dir = config.valid_hrtf_dir
 
             subject_id = str(ds[i]['group'])
             side = ds[i]['target']
-            with open(projected_dir + "ARI_" + subject_id + side, "wb") as file:
+            with open(projected_dir + "/ARI_" + subject_id + side, "wb") as file:
                 pickle.dump(clean_hrtf, file)
+
+        if config.merge_flag:
+            merge_left_right_hrtfs(config.train_hrtf_dir, config.train_hrtf_merge_dir)
+            merge_left_right_hrtfs(config.valid_hrtf_dir, config.valid_hrtf_merge_dir)
+
+        convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
+        convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
 
         # save dataset mean and standard deviation for each channel, across all HRTFs in the training data
         mean = torch.mean(train_hrtfs, [0, 1, 2, 3])
         std = torch.std(train_hrtfs, [0, 1, 2, 3])
         min_hrtf = torch.min(train_hrtfs)
         max_hrtf = torch.max(train_hrtfs)
-        mean_std_filename = "projected_data/ARI_mean_std_min_max"
-        if using_hpc:
-            mean_std_filename = "HRTF-GANs/" + mean_std_filename
+        mean_std_filename = config.mean_std_filename
         with open(mean_std_filename, "wb") as file:
             pickle.dump((mean, std, min_hrtf, max_hrtf), file)
 

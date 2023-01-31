@@ -19,7 +19,8 @@ class TrainValidHRTFDataset(Dataset):
     def __init__(self, hrtf_dir: str, hrtf_size: int, upscale_factor: int, transform=None) -> None:
         super(TrainValidHRTFDataset, self).__init__()
         # Get all hrtf file names in folder
-        self.hrtf_file_names = [os.path.join(hrtf_dir, hrtf_file_name) for hrtf_file_name in os.listdir(hrtf_dir)]
+        self.hrtf_file_names = [os.path.join(hrtf_dir, hrtf_file_name) for hrtf_file_name in os.listdir(hrtf_dir)
+                                if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name))]
         # Specify the high-resolution hrtf size, with equal length and width
         self.hrtf_size = hrtf_size
         # How many times the high-resolution hrtf is the low-resolution hrtf

@@ -80,8 +80,8 @@ def test(config, val_prefetcher):
             ear_label = 'unknown'
 
         plot_label = filename[0].split('/')[-1]
-        plot_magnitude_spectrums(pos_freqs, magnitudes_real, magnitudes_interpolated,
-                                 ear_label, "validation", plot_label, path, log_scale_magnitudes=True)
+        # plot_magnitude_spectrums(pos_freqs, magnitudes_real, magnitudes_interpolated,
+        #                          ear_label, "validation", plot_label, path, log_scale_magnitudes=True)
 
         # Preload the next batch of data
         batch_data = val_prefetcher.next()

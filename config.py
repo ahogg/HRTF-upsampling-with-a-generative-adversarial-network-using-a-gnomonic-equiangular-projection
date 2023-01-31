@@ -10,20 +10,27 @@ class Config:
 
     def __init__(self, tag, using_hpc):
         self.tag = tag
-        self.path = f'runs/{self.tag}'
-        self.model_path = f'runs/06-increase-LRg-train'
 
-        # data dirs
-        self.train_hrtf_dir = '/home/aos13/HRTF-GANs-27Sep22-prep-for-publication/projected_data-merge/train-merge'
-        self.valid_hrtf_dir = '/home/aos13/HRTF-GANs-27Sep22-prep-for-publication/projected_data-merge/valid-merge'
         if using_hpc:
-            self.train_hrtf_dir = "HRTF-GANs/" + self.train_hrtf_dir
-            self.valid_hrtf_dir = "HRTF-GANs/" + self.valid_hrtf_dir
-            self.raw_hrtf_dir = Path('../projects/sonicom/live/HRTF Datasets')
+            # HPC data dirs
+            self.data_dirs_path = '/rds/general/user/aos13/home/HRTF-GANs-27Sep22-prep-for-publication'
+            self.raw_hrtf_dir = Path('/rds/general/project/sonicom/live/HRTF Datasets')
         else:
+            # local data dirs
+            self.data_dirs_path = '/home/aos13/HRTF-GANs-27Sep22-prep-for-publication'
             self.raw_hrtf_dir = Path('/home/aos13/HRTF_datasets')
 
+        self.path = f'{self.data_dirs_path}/runs/{self.tag}'
+        self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
+
+        self.train_hrtf_dir = self.data_dirs_path + '/projected_data/train'
+        self.valid_hrtf_dir = self.data_dirs_path + '/projected_data/valid'
+        self.train_hrtf_merge_dir = self.data_dirs_path + '/projected_data/merge/train_merge'
+        self.valid_hrtf_merge_dir = self.data_dirs_path + '/projected_data/merge/valid_merge'
+        self.mean_std_filename = self.data_dirs_path + '/projected_data/mean_std_filename'
+
         # Data processing parameters
+        self.merge_flag = True
         self.hrtf_size = 16
         self.upscale_factor = 4
         self.train_samples_ratio = 0.8
