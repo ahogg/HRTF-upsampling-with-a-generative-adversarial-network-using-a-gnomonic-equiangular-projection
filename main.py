@@ -13,7 +13,7 @@ from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
 from preprocessing.utils import interpolate_fft, generate_euclidean_cube, \
-    load_data, merge_left_right_hrtfs, convert_to_sofa
+    load_data, merge_left_right_hrtfs, convert_to_sofa, get_hrtf_from_ds
 from model import util
 
 PI_4 = np.pi / 4
@@ -59,6 +59,14 @@ def main(mode, tag, using_hpc):
         Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
         Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
 
+        orignal_path_output = config.train_hrtf_dir + '/original/'
+        shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+        Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+
+        orignal_path_output = config.valid_hrtf_dir + '/original/'
+        shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+        Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+
         # Split data into train and test sets
         train_size = int(len(set(ds.subject_ids)) * config.train_samples_ratio)
         train_sample = np.random.choice(list(set(ds.subject_ids)), train_size, replace=False)
@@ -72,7 +80,9 @@ def main(mode, tag, using_hpc):
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
                                          config.hrtf_size)
 
-            # save cleaned hrtfdata
+            hrtf_original, sphere_original = get_hrtf_from_ds(ds, i)
+
+                    # save cleaned hrtfdata
             if ds[i]['group'] in train_sample:
                 projected_dir = config.train_hrtf_dir
                 train_hrtfs[j] = clean_hrtf
@@ -85,12 +95,20 @@ def main(mode, tag, using_hpc):
             with open(projected_dir + "/ARI_" + subject_id + side, "wb") as file:
                 pickle.dump(clean_hrtf, file)
 
+            orignal_path_output = projected_dir + '/original/'
+            with open(orignal_path_output + "/ARI_" + subject_id + side, "wb") as file:
+                pickle.dump(hrtf_original, file)
+
         if config.merge_flag:
             merge_left_right_hrtfs(config.train_hrtf_dir, config.train_hrtf_merge_dir)
             merge_left_right_hrtfs(config.valid_hrtf_dir, config.valid_hrtf_merge_dir)
+            merge_left_right_hrtfs(config.train_hrtf_dir+'/original', config.train_hrtf_merge_dir+'/original')
+            merge_left_right_hrtfs(config.valid_hrtf_dir+'/original', config.valid_hrtf_merge_dir+'/original')
 
         convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
         convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
+        convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
+        convert_to_sofa(config.valid_hrtf_merge_dir+'/original', config, cube=None, sphere=sphere_original)
 
         # save dataset mean and standard deviation for each channel, across all HRTFs in the training data
         mean = torch.mean(train_hrtfs, [0, 1, 2, 3])

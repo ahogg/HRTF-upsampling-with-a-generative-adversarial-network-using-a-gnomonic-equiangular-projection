@@ -23,11 +23,11 @@ class Config:
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
 
-        self.train_hrtf_dir = self.data_dirs_path + '/projected_data/train'
-        self.valid_hrtf_dir = self.data_dirs_path + '/projected_data/valid'
-        self.train_hrtf_merge_dir = self.data_dirs_path + '/projected_data/merge/train_merge'
-        self.valid_hrtf_merge_dir = self.data_dirs_path + '/projected_data/merge/valid_merge'
-        self.mean_std_filename = self.data_dirs_path + '/projected_data/mean_std_filename'
+        self.train_hrtf_dir = self.data_dirs_path + '/data/train'
+        self.valid_hrtf_dir = self.data_dirs_path + '/data/valid'
+        self.train_hrtf_merge_dir = self.data_dirs_path + '/data/merge/train_merge'
+        self.valid_hrtf_merge_dir = self.data_dirs_path + '/data/merge/valid_merge'
+        self.mean_std_filename = self.data_dirs_path + '/data/mean_std_filename'
 
         # Data processing parameters
         self.merge_flag = True

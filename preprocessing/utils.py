@@ -35,7 +35,8 @@ def merge_left_right_hrtfs(input_dir, output_dir):
     shutil.rmtree(Path(output_dir), ignore_errors=True)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    hrtf_file_names = [os.path.join(input_dir, hrtf_file_name) for hrtf_file_name in os.listdir(input_dir)]
+    hrtf_file_names = [os.path.join(input_dir, hrtf_file_name) for hrtf_file_name in os.listdir(input_dir)
+                       if os.path.isfile(os.path.join(input_dir, hrtf_file_name))]
 
     hrtf_dict_left = {}
     hrtf_dict_right = {}
@@ -55,12 +56,31 @@ def merge_left_right_hrtfs(input_dir, output_dir):
     for subj_id in hrtf_dict_right.keys():
         hrtf_r = hrtf_dict_right[subj_id]
         hrtf_l = hrtf_dict_left[subj_id]
-        hrtf_merged = torch.cat((hrtf_l, hrtf_r), dim=3)
+        dimension = hrtf_r.ndim-1
+        hrtf_merged = torch.cat((hrtf_l, hrtf_r), dim=dimension)
         with open(output_dir + "/ARI_" + str(subj_id), "wb") as file:
             pickle.dump(hrtf_merged, file)
 
 
-def add_ITD(az, el, hrir, side, fs=48000, r=0.0875, c=343):
+def get_hrtf_from_ds(ds, index):
+    coordinates = ds.row_angles, ds.column_angles
+    position_grid = np.stack(np.meshgrid(*coordinates, indexing='ij'), axis=-1)
+
+    sphere_temp = []
+    hrir_temp = []
+    for row_idx, row in enumerate(ds.row_angles):
+        for column_idx, column in enumerate(ds.column_angles):
+            if not any(np.ma.getmaskarray(ds[index]['features'][row_idx][column_idx])):
+                az_temp = np.radians(position_grid[row_idx][column_idx][0])
+                el_temp = np.radians(position_grid[row_idx][column_idx][1])
+                sphere_temp.append([el_temp, az_temp])
+                hrir_temp.append(np.ma.getdata(ds[index]['features'][row_idx][column_idx]))
+    hrtf_temp, _ = calc_hrtf(hrir_temp)
+
+    return torch.tensor(np.array(hrtf_temp)), sphere_temp
+
+
+def add_itd(az, el, hrir, side, fs=48000, r=0.0875, c=343):
 
     az = np.radians(az)
     el = np.radians(el)
@@ -83,40 +103,62 @@ def add_ITD(az, el, hrir, side, fs=48000, r=0.0875, c=343):
 
 
 def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output):
-    left_full_hrtf = clean_hrtf[:, :, :, :128]
-    right_full_hrtf = clean_hrtf[:, :, :, 128:]
-
-    full_hrir = []
-    source_positions = []
-    delays = []
-    count = 0
-    for panel, x, y in cube_coords:
-        # based on cube coordinates, get indices for magnitudes list of lists
-        i = panel - 1
-        j = round(config.hrtf_size * (x - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
-        k = round(config.hrtf_size * (y - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
+    def gen_sofa_file(left_hrtf, right_hrtf, count):
 
         el = np.degrees(sphere_coords[count][0])
         az = np.degrees(sphere_coords[count][1])
-        source_positions.append([az + 360 if az < 0 else az, el, 1.2])
-        count += 1
+        source_position = [az + 360 if az < 0 else az, el, 1.2]
 
-        left_hrtf = np.array(left_full_hrtf[i, j, k])
         left_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(left_hrtf))))
         left_hrir = scipy.fft.irfft(np.abs(left_hrtf) * np.exp(1j * left_hrtf_minimum_phase))[:128]
 
-        right_hrtf = np.array(right_full_hrtf[i, j, k])
         right_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
         right_hrir = scipy.fft.irfft(np.abs(right_hrtf) * np.exp(1j * right_hrtf_minimum_phase))[:128]
 
-        left_hrir, left_sample_delay = add_ITD(az, el, left_hrir, side='left')
-        right_hrir, right_sample_delay = add_ITD(az, el, right_hrir, side='right')
+        left_hrir, left_sample_delay = add_itd(az, el, left_hrir, side='left')
+        right_hrir, right_sample_delay = add_itd(az, el, right_hrir, side='right')
 
-        full_hrir.append([left_hrir, right_hrir])
-        delays.append([left_sample_delay, right_sample_delay])
+        full_hrir = [left_hrir, right_hrir]
+        delay = [left_sample_delay, right_sample_delay]
+
+        return source_position, full_hrir, delay
+
+    full_hrirs = []
+    source_positions = []
+    delays = []
+    if cube_coords == None:
+        left_full_hrtf = clean_hrtf[:, :128]
+        right_full_hrtf = clean_hrtf[:, 128:]
+
+        for count in range(len(sphere_coords)):
+            left_hrtf = np.array(left_full_hrtf[count])
+            right_hrtf = np.array(right_full_hrtf[count])
+            source_position, full_hrir, delay = gen_sofa_file(left_hrtf, right_hrtf, count)
+            full_hrirs.append(full_hrir)
+            source_positions.append(source_position)
+            delays.append(delay)
+
+    else:
+        left_full_hrtf = clean_hrtf[:, :, :, :128]
+        right_full_hrtf = clean_hrtf[:, :, :, 128:]
+
+        count = 0
+        for panel, x, y in cube_coords:
+            # based on cube coordinates, get indices for magnitudes list of lists
+            i = panel - 1
+            j = round(config.hrtf_size * (x - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
+            k = round(config.hrtf_size * (y - (PI_4 / config.hrtf_size) + PI_4) / (np.pi / 2))
+
+            left_hrtf = np.array(left_full_hrtf[i, j, k])
+            right_hrtf = np.array(right_full_hrtf[i, j, k])
+            source_position, full_hrir, delay = gen_sofa_file(left_hrtf, right_hrtf, count)
+            full_hrirs.append(full_hrir)
+            source_positions.append(source_position)
+            delays.append(delay)
+            count += 1
 
     sofa = sf.Sofa("SimpleFreeFieldHRIR")
-    sofa.Data_IR = full_hrir
+    sofa.Data_IR = full_hrirs
     sofa.Data_SamplingRate = 48000
     sofa.Data_Delay = delays
     sofa.SourcePosition = source_positions
