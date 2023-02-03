@@ -4,8 +4,6 @@ import pickle
 import torch
 from hrtfdata.torch.full import ARI
 import numpy as np
-from pathlib import Path
-import shutil
 
 from config import Config
 from model.train import train
@@ -13,8 +11,9 @@ from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
 from preprocessing.utils import interpolate_fft, generate_euclidean_cube, \
-    load_data, merge_left_right_hrtfs, convert_to_sofa, get_hrtf_from_ds
+    load_data, merge_files, gen_sofa_files, get_hrtf_from_ds, clear_create_directories
 from model import util
+from baselines.barycentric_interpolation import run_barycentric_interpolation
 
 PI_4 = np.pi / 4
 
@@ -54,18 +53,7 @@ def main(mode, tag, using_hpc):
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
         # Clear/Create directories
-        shutil.rmtree(Path(config.train_hrtf_dir), ignore_errors=True)
-        shutil.rmtree(Path(config.valid_hrtf_dir), ignore_errors=True)
-        Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
-        Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
-
-        orignal_path_output = config.train_hrtf_dir + '/original/'
-        shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-        Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
-
-        orignal_path_output = config.valid_hrtf_dir + '/original/'
-        shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-        Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+        clear_create_directories(config)
 
         # Split data into train and test sets
         train_size = int(len(set(ds.subject_ids)) * config.train_samples_ratio)
@@ -74,15 +62,16 @@ def main(mode, tag, using_hpc):
         # collect all train_hrtfs to get mean and sd
         train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
         j = 0
-        for i in range(len(ds)):
+        # for i in range(len(ds)):
+        for i in range(40):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
                                          config.hrtf_size)
 
-            hrtf_original, sphere_original = get_hrtf_from_ds(ds, i)
+            hrtf_original, phase_original, sphere_original = get_hrtf_from_ds(ds, i)
 
-                    # save cleaned hrtfdata
+            # save cleaned hrtfdata
             if ds[i]['group'] in train_sample:
                 projected_dir = config.train_hrtf_dir
                 train_hrtfs[j] = clean_hrtf
@@ -95,20 +84,19 @@ def main(mode, tag, using_hpc):
             with open(projected_dir + "/ARI_" + subject_id + side, "wb") as file:
                 pickle.dump(clean_hrtf, file)
 
-            orignal_path_output = projected_dir + '/original/'
+            orignal_path_output = projected_dir + '/original'
             with open(orignal_path_output + "/ARI_" + subject_id + side, "wb") as file:
                 pickle.dump(hrtf_original, file)
 
-        if config.merge_flag:
-            merge_left_right_hrtfs(config.train_hrtf_dir, config.train_hrtf_merge_dir)
-            merge_left_right_hrtfs(config.valid_hrtf_dir, config.valid_hrtf_merge_dir)
-            merge_left_right_hrtfs(config.train_hrtf_dir+'/original', config.train_hrtf_merge_dir+'/original')
-            merge_left_right_hrtfs(config.valid_hrtf_dir+'/original', config.valid_hrtf_merge_dir+'/original')
+            orignal_path_output = projected_dir + '/original/phase'
+            with open(orignal_path_output + "/ARI_" + subject_id + side, "wb") as file:
+                pickle.dump(phase_original, file)
 
-        convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
-        convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
-        convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
-        convert_to_sofa(config.valid_hrtf_merge_dir+'/original', config, cube=None, sphere=sphere_original)
+        if config.merge_flag:
+            merge_files(config)
+
+        if config.gen_sofa_flag:
+            gen_sofa_files(config, cube, sphere, sphere_original)
 
         # save dataset mean and standard deviation for each channel, across all HRTFs in the training data
         mean = torch.mean(train_hrtfs, [0, 1, 2, 3])
@@ -133,6 +121,9 @@ def main(mode, tag, using_hpc):
 
         util.initialise_folders(tag, overwrite=True)
         test(config, test_prefetcher)
+
+    elif mode == 'baseline':
+        run_barycentric_interpolation(config)
 
 
 if __name__ == '__main__':

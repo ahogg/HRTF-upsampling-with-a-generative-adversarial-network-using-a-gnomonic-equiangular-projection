@@ -17,6 +17,28 @@ from preprocessing.KalmanFilter import KalmanFilter
 PI_4 = np.pi / 4
 
 
+def clear_create_directories(config):
+    """Clear/Create directories"""
+    shutil.rmtree(Path(config.train_hrtf_dir), ignore_errors=True)
+    shutil.rmtree(Path(config.valid_hrtf_dir), ignore_errors=True)
+    Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
+    Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
+
+    orignal_path_output = config.train_hrtf_dir + '/original/'
+    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+    orignal_path_output = config.valid_hrtf_dir + '/original/'
+    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+
+    orignal_path_output = config.train_hrtf_dir + '/original/phase/'
+    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+    orignal_path_output = config.valid_hrtf_dir + '/original/phase/'
+    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
+    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+
+
 def load_data(data_folder, load_function, domain, side, subject_ids=None):
     """Wrapper for the data loading functions from the hrtfdata package"""
     if subject_ids:
@@ -31,7 +53,7 @@ def load_data(data_folder, load_function, domain, side, subject_ids=None):
 
 
 def merge_left_right_hrtfs(input_dir, output_dir):
-    # Clear/Create directories
+    # Clear/Create directory
     shutil.rmtree(Path(output_dir), ignore_errors=True)
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -62,6 +84,15 @@ def merge_left_right_hrtfs(input_dir, output_dir):
             pickle.dump(hrtf_merged, file)
 
 
+def merge_files(config):
+    merge_left_right_hrtfs(config.train_hrtf_dir, config.train_hrtf_merge_dir)
+    merge_left_right_hrtfs(config.valid_hrtf_dir, config.valid_hrtf_merge_dir)
+    merge_left_right_hrtfs(config.train_hrtf_dir + '/original', config.train_hrtf_merge_dir + '/original')
+    merge_left_right_hrtfs(config.valid_hrtf_dir + '/original', config.valid_hrtf_merge_dir + '/original')
+    merge_left_right_hrtfs(config.train_hrtf_dir + '/original/phase', config.train_hrtf_merge_dir + '/original/phase')
+    merge_left_right_hrtfs(config.valid_hrtf_dir + '/original/phase', config.valid_hrtf_merge_dir + '/original/phase')
+
+
 def get_hrtf_from_ds(ds, index):
     coordinates = ds.row_angles, ds.column_angles
     position_grid = np.stack(np.meshgrid(*coordinates, indexing='ij'), axis=-1)
@@ -75,9 +106,9 @@ def get_hrtf_from_ds(ds, index):
                 el_temp = np.radians(position_grid[row_idx][column_idx][1])
                 sphere_temp.append([el_temp, az_temp])
                 hrir_temp.append(np.ma.getdata(ds[index]['features'][row_idx][column_idx]))
-    hrtf_temp, _ = calc_hrtf(hrir_temp)
+    hrtf_temp, phase_temp = calc_hrtf(hrir_temp)
 
-    return torch.tensor(np.array(hrtf_temp)), sphere_temp
+    return torch.tensor(np.array(hrtf_temp)), torch.tensor(np.array(phase_temp)), sphere_temp
 
 
 def add_itd(az, el, hrir, side, fs=48000, r=0.0875, c=343):
@@ -102,38 +133,56 @@ def add_itd(az, el, hrir, side, fs=48000, r=0.0875, c=343):
     return delayed_hrir, sofa_delay
 
 
-def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output):
-    def gen_sofa_file(left_hrtf, right_hrtf, count):
+def gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase=None, right_phase=None):
+    el = np.degrees(sphere_coords[count][0])
+    az = np.degrees(sphere_coords[count][1])
+    source_position = [az + 360 if az < 0 else az, el, 1.2]
 
-        el = np.degrees(sphere_coords[count][0])
-        az = np.degrees(sphere_coords[count][1])
-        source_position = [az + 360 if az < 0 else az, el, 1.2]
+    if left_phase is None:
+        left_phase = np.imag(-hilbert(np.log(np.abs(left_hrtf))))
+    if right_phase is None:
+        right_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
 
-        left_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(left_hrtf))))
-        left_hrir = scipy.fft.irfft(np.abs(left_hrtf) * np.exp(1j * left_hrtf_minimum_phase))[:128]
+    # left_hrir = scipy.fft.irfft(np.abs(left_hrtf) * np.exp(1j * left_hrtf_minimum_phase))[:128]
+    left_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(left_hrtf[:127]))) * np.exp(1j * left_phase))[:128]
 
-        right_hrtf_minimum_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
-        right_hrir = scipy.fft.irfft(np.abs(right_hrtf) * np.exp(1j * right_hrtf_minimum_phase))[:128]
+    # right_hrir = scipy.fft.irfft(np.abs(right_hrtf) * np.exp(1j * right_hrtf_minimum_phase))[:128]
+    right_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(right_hrtf[:127]))) * np.exp(1j * right_phase))[:128]
 
-        left_hrir, left_sample_delay = add_itd(az, el, left_hrir, side='left')
-        right_hrir, right_sample_delay = add_itd(az, el, right_hrir, side='right')
+    left_hrir, left_sample_delay = add_itd(az, el, left_hrir, side='left')
+    right_hrir, right_sample_delay = add_itd(az, el, right_hrir, side='right')
 
-        full_hrir = [left_hrir, right_hrir]
-        delay = [left_sample_delay, right_sample_delay]
+    full_hrir = [left_hrir, right_hrir]
+    delay = [left_sample_delay, right_sample_delay]
 
-        return source_position, full_hrir, delay
+    return source_position, full_hrir, delay
 
+
+def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output, phase=None):
     full_hrirs = []
     source_positions = []
     delays = []
-    if cube_coords == None:
+    left_full_phase = None
+    right_full_phase = None
+    if cube_coords is None:
         left_full_hrtf = clean_hrtf[:, :128]
         right_full_hrtf = clean_hrtf[:, 128:]
+
+        if phase is not None:
+            left_full_phase = phase[:, :128]
+            right_full_phase = phase[:, 128:]
 
         for count in range(len(sphere_coords)):
             left_hrtf = np.array(left_full_hrtf[count])
             right_hrtf = np.array(right_full_hrtf[count])
-            source_position, full_hrir, delay = gen_sofa_file(left_hrtf, right_hrtf, count)
+
+            if phase is None:
+                source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count)
+            else:
+                left_phase = np.array(left_full_phase[count])
+                right_phase = np.array(right_full_phase[count])
+                source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase, right_phase)
+
             full_hrirs.append(full_hrir)
             source_positions.append(source_position)
             delays.append(delay)
@@ -151,7 +200,7 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output):
 
             left_hrtf = np.array(left_full_hrtf[i, j, k])
             right_hrtf = np.array(right_full_hrtf[i, j, k])
-            source_position, full_hrir, delay = gen_sofa_file(left_hrtf, right_hrtf, count)
+            source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count)
             full_hrirs.append(full_hrir)
             source_positions.append(source_position)
             delays.append(delay)
@@ -165,22 +214,39 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output):
     sf.write_sofa(sofa_path_output, sofa)
 
 
-def convert_to_sofa(hrtf_dir, config, cube, sphere):
+def convert_to_sofa(hrtf_dir, config, cube, sphere, phase_dir=None):
     # Clear/Create directories
-    sofa_path_output = hrtf_dir + '/sofa/'
+    if phase_dir is None:
+        sofa_path_output = hrtf_dir + '/sofa/'
+    else:
+        sofa_path_output = phase_dir + '/sofa/'
     shutil.rmtree(Path(sofa_path_output), ignore_errors=True)
     Path(sofa_path_output).mkdir(parents=True, exist_ok=True)
 
-    hrtf_file_names = [os.path.join(hrtf_dir, hrtf_file_name) for hrtf_file_name in os.listdir(hrtf_dir)
+    hrtf_file_names = [hrtf_file_name for hrtf_file_name in os.listdir(hrtf_dir)
                        if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name))]
 
     for f in hrtf_file_names:
-        with open(f, "rb") as file:
-            hrtf = pickle.load(file)
-            sofa_filename_output = os.path.basename(file.name) + '.sofa'
+        with open(os.path.join(hrtf_dir, f), "rb") as hrtf_file:
+            hrtf = pickle.load(hrtf_file)
+            sofa_filename_output = os.path.basename(hrtf_file.name) + '.sofa'
             sofa_output = sofa_path_output + sofa_filename_output
-            save_sofa(hrtf, config, cube, sphere, sofa_output)
 
+            if phase_dir != None:
+                with open(os.path.join(hrtf_dir, f), "rb") as phase_file:
+                    phase = pickle.load(phase_file)
+                    save_sofa(hrtf, config, cube, sphere, sofa_output, phase)
+            else:
+                save_sofa(hrtf, config, cube, sphere, sofa_output)
+
+
+def gen_sofa_files(config, cube, sphere, sphere_original):
+    convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
+    convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
+    convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
+    convert_to_sofa(config.valid_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
+    convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, phase_dir=config.train_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
+    convert_to_sofa(config.valid_hrtf_merge_dir+'/original', config, phase_dir=config.valid_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
 
 def generate_euclidean_cube(measured_coords, filename, edge_len=16):
     """Calculate barycentric coordinates for projection based on a specified cube sphere edge length and a set of
@@ -234,15 +300,25 @@ def get_feature_for_point(elevation, azimuth, all_coords, subject_features):
     return subject_features[azimuth_index][elevation_index]
 
 
-def calc_interpolated_feature(triangle_vertices, coeffs, all_coords, subject_features):
+def get_feature_for_point_tensor(elevation, azimuth, all_coords, subject_features):
+    """For a given point (elevation, azimuth), get the associated feature value"""
+    all_coords_row = all_coords.query(f'elevation == {elevation} & azimuth == {azimuth}')
+    return scipy.fft.irfft(np.concatenate((np.array([0.0]), np.array(subject_features[int(all_coords_row.panel-1)][int(all_coords_row.elevation_index)][int(all_coords_row.azimuth_index)]))))
+
+
+def calc_interpolated_feature(time_domain_flag, triangle_vertices, coeffs, all_coords, subject_features):
     """Calculate the interpolated feature for a given point based on vertices specified by triangle_vertices, features
     specified by subject_features, and barycentric coefficients specified by coeffs"""
     # get features for each of the three closest points, add to a list in order of closest to farthest
     features = []
     for p in triangle_vertices:
-        features_p = get_feature_for_point(p[0], p[1], all_coords, subject_features)
-        features_no_ITD = remove_itd(features_p, 10, 256)
-        features.append(features_no_ITD)
+        if time_domain_flag:
+            features_p = get_feature_for_point(p[0], p[1], all_coords, subject_features)
+            features_no_ITD = remove_itd(features_p, 10, 256)
+            features.append(features_no_ITD)
+        else:
+            features_p = get_feature_for_point_tensor(p[0], p[1], all_coords, subject_features)
+            features.append(features_p)
 
     # based on equation 6 in "3D Tune-In Toolkit: An open-source library for real-time binaural spatialisation"
     interpolated_feature = coeffs["alpha"] * features[0] + coeffs["beta"] * features[1] + coeffs["gamma"] * features[2]
@@ -256,7 +332,12 @@ def calc_all_interpolated_features(cs, features, euclidean_sphere, euclidean_sph
     selected_feature_interpolated = []
     for i, p in enumerate(euclidean_sphere):
         if p[0] is not None:
-            features_p = calc_interpolated_feature(triangle_vertices=euclidean_sphere_triangles[i],
+            if 'panel_index' in cs.all_coords.columns:
+                time_domain_flag = False
+            else:
+                time_domain_flag = True
+            features_p = calc_interpolated_feature(time_domain_flag=time_domain_flag,
+                                                   triangle_vertices=euclidean_sphere_triangles[i],
                                                    coeffs=euclidean_sphere_coeffs[i],
                                                    all_coords=cs.get_all_coords(),
                                                    subject_features=features)

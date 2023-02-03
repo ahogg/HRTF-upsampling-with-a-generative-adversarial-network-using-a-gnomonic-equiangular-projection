@@ -23,14 +23,16 @@ class Config:
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
 
-        self.train_hrtf_dir = self.data_dirs_path + '/data/train'
-        self.valid_hrtf_dir = self.data_dirs_path + '/data/valid'
-        self.train_hrtf_merge_dir = self.data_dirs_path + '/data/merge/train_merge'
-        self.valid_hrtf_merge_dir = self.data_dirs_path + '/data/merge/valid_merge'
-        self.mean_std_filename = self.data_dirs_path + '/data/mean_std_filename'
+        self.train_hrtf_dir = self.data_dirs_path + '/data_test/train'
+        self.valid_hrtf_dir = self.data_dirs_path + '/data_test/valid'
+        self.train_hrtf_merge_dir = self.data_dirs_path + '/data_test/merge/train_merge'
+        self.valid_hrtf_merge_dir = self.data_dirs_path + '/data_test/merge/valid_merge'
+        self.mean_std_filename = self.data_dirs_path + '/data_test/mean_std_filename'
+        self.barycentric_hrtf_dir = self.data_dirs_path + '/data_test/barycentric'
 
         # Data processing parameters
         self.merge_flag = True
+        self.gen_sofa_flag = True
         self.hrtf_size = 16
         self.upscale_factor = 4
         self.train_samples_ratio = 0.8
