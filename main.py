@@ -10,8 +10,8 @@ from model.train import train
 from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
-from preprocessing.utils import interpolate_fft, generate_euclidean_cube, \
-    load_data, merge_files, gen_sofa_files, get_hrtf_from_ds, clear_create_directories
+from preprocessing.utils import interpolate_fft, generate_euclidean_cube, gen_sofa_baseline, \
+    load_data, merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories
 from model import util
 from baselines.barycentric_interpolation import run_barycentric_interpolation
 
@@ -63,7 +63,7 @@ def main(mode, tag, using_hpc):
         train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
         j = 0
         # for i in range(len(ds)):
-        for i in range(40):
+        for i in range(20):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
@@ -96,7 +96,7 @@ def main(mode, tag, using_hpc):
             merge_files(config)
 
         if config.gen_sofa_flag:
-            gen_sofa_files(config, cube, sphere, sphere_original)
+            gen_sofa_preprocess(config, cube, sphere, sphere_original)
 
         # save dataset mean and standard deviation for each channel, across all HRTFs in the training data
         mean = torch.mean(train_hrtfs, [0, 1, 2, 3])
@@ -123,7 +123,14 @@ def main(mode, tag, using_hpc):
         test(config, test_prefetcher)
 
     elif mode == 'baseline':
-        run_barycentric_interpolation(config)
+        no_nodes = str(int(5 * (config.hrtf_size / config.upscale_factor) ** 2))
+        no_full_nodes = str(int(5 * config.hrtf_size ** 2))
+
+        barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
+        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder)
+
+        if config.gen_sofa_flag:
+            gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)
 
 
 if __name__ == '__main__':

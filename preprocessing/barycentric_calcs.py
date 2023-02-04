@@ -31,7 +31,7 @@ def calc_spherical_excess(elevation1, azimuth1, elevation2, azimuth2, elevation3
              np.tan(0.5 * (semiperimeter - dist12)) *
              np.tan(0.5 * (semiperimeter - dist13)) *
              np.tan(0.5 * (semiperimeter - dist23)))
-    excess = 4 * np.arctan(np.sqrt(inner))
+    excess = 4 * np.arctan(np.sqrt(inner if inner >= 0 else 0))
     return excess
 
 
@@ -125,7 +125,8 @@ def get_triangle_vertices(elevation, azimuth, sphere_coords):
                 selected_triangle_vertices = triangle_vertices
                 break
         else:
-            raise RuntimeError(f"No enclosing triangle found for elevation {elevation}, azimuth {azimuth}.")
+            # sometimes no triangle can be formed, so it directly uses the closest three points as the candidate nodes.
+            selected_triangle_vertices = triangle_vertices
 
     # if no triangles enclose the point, this will return none
     return selected_triangle_vertices

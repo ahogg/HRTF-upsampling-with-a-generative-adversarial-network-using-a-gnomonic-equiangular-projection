@@ -14,19 +14,19 @@ from preprocessing.barycentric_calcs import get_triangle_vertices, calc_barycent
 PI_4 = np.pi / 4
 
 
-def run_barycentric_interpolation(config):
+def run_barycentric_interpolation(config, barycentric_data_folder):
     vaild_data_paths = glob.glob(config.valid_hrtf_merge_dir + '/ARI_*')
     vaild_data_file_names = ['/' + os.path.basename(x) for x in vaild_data_paths]
 
-    no_nodes = str(int(5 * (config.hrtf_size / config.upscale_factor) ** 2))
-    no_full_nodes = str(int(5 * config.hrtf_size ** 2))
-
-    barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
     barycentric_output_path = config.barycentric_hrtf_dir + barycentric_data_folder
 
     # Clear/Create directory
     shutil.rmtree(Path(barycentric_output_path), ignore_errors=True)
     Path(barycentric_output_path).mkdir(parents=True, exist_ok=True)
+
+    filename = 'projection_coordinates/ARI_projection_%s' % config.hrtf_size
+    with open(filename, "rb") as f:
+        (cube_coords, sphere_coords, euclidean_sphere_triangles, euclidean_sphere_coeffs) = pickle.load(f)
 
     for file_name in vaild_data_file_names:
         with open(config.valid_hrtf_merge_dir + file_name, "rb") as f:
@@ -35,10 +35,6 @@ def run_barycentric_interpolation(config):
         lr_hrtf = torch.permute(
             torch.nn.functional.interpolate(torch.permute(hr_hrtf, (3, 0, 1, 2)), scale_factor=1 / config.upscale_factor),
             (1, 2, 3, 0))
-
-        filename = 'projection_coordinates/ARI_projection_%s' % config.hrtf_size
-        with open(filename, "rb") as f:
-            (cube_coords, sphere_coords, euclidean_sphere_triangles, euclidean_sphere_coeffs) = pickle.load(f)
 
         sphere_coords_lr = []
         sphere_coords_lr_index = []
@@ -66,3 +62,5 @@ def run_barycentric_interpolation(config):
 
         with open(barycentric_output_path + file_name, "wb") as file:
             pickle.dump(barycentric_hr, file)
+
+    return cube_coords, sphere_coords

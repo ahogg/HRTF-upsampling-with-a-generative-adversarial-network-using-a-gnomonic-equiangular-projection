@@ -139,14 +139,13 @@ def gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase=None, 
     source_position = [az + 360 if az < 0 else az, el, 1.2]
 
     if left_phase is None:
+        left_hrtf[left_hrtf == 0.0] = 1.0e-08
         left_phase = np.imag(-hilbert(np.log(np.abs(left_hrtf))))
     if right_phase is None:
+        right_hrtf[right_hrtf == 0.0] = 1.0e-08
         right_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
 
-    # left_hrir = scipy.fft.irfft(np.abs(left_hrtf) * np.exp(1j * left_hrtf_minimum_phase))[:128]
     left_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(left_hrtf[:127]))) * np.exp(1j * left_phase))[:128]
-
-    # right_hrir = scipy.fft.irfft(np.abs(right_hrtf) * np.exp(1j * right_hrtf_minimum_phase))[:128]
     right_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(right_hrtf[:127]))) * np.exp(1j * right_phase))[:128]
 
     left_hrir, left_sample_delay = add_itd(az, el, left_hrir, side='left')
@@ -240,13 +239,18 @@ def convert_to_sofa(hrtf_dir, config, cube, sphere, phase_dir=None):
                 save_sofa(hrtf, config, cube, sphere, sofa_output)
 
 
-def gen_sofa_files(config, cube, sphere, sphere_original):
+def gen_sofa_preprocess(config, cube, sphere, sphere_original):
     convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
     convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
     convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
     convert_to_sofa(config.valid_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
     convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, phase_dir=config.train_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
     convert_to_sofa(config.valid_hrtf_merge_dir+'/original', config, phase_dir=config.valid_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
+
+
+def gen_sofa_baseline(config, barycentric_data_folder, cube, sphere):
+    convert_to_sofa(config.barycentric_hrtf_dir + barycentric_data_folder, config, cube, sphere)
+
 
 def generate_euclidean_cube(measured_coords, filename, edge_len=16):
     """Calculate barycentric coordinates for projection based on a specified cube sphere edge length and a set of
