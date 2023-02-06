@@ -62,8 +62,7 @@ def main(mode, tag, using_hpc):
         # collect all train_hrtfs to get mean and sd
         train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
         j = 0
-        # for i in range(len(ds)):
-        for i in range(20):
+        for i in range(len(ds)):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
             clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
@@ -74,22 +73,22 @@ def main(mode, tag, using_hpc):
             # save cleaned hrtfdata
             if ds[i]['group'] in train_sample:
                 projected_dir = config.train_hrtf_dir
+                projected_dir_original = config.train_original_hrtf_dir
                 train_hrtfs[j] = clean_hrtf
                 j += 1
             else:
                 projected_dir = config.valid_hrtf_dir
+                projected_dir_original = config.valid_original_hrtf_dir
 
             subject_id = str(ds[i]['group'])
             side = ds[i]['target']
-            with open(projected_dir + "/ARI_" + subject_id + side, "wb") as file:
+            with open('%s/ARI_mag_%s%s.pickle' % (projected_dir, subject_id, side), "wb") as file:
                 pickle.dump(clean_hrtf, file)
 
-            orignal_path_output = projected_dir + '/original'
-            with open(orignal_path_output + "/ARI_" + subject_id + side, "wb") as file:
+            with open('%s/ARI_mag_%s%s.pickle' % (projected_dir_original, subject_id, side), "wb") as file:
                 pickle.dump(hrtf_original, file)
 
-            orignal_path_output = projected_dir + '/original/phase'
-            with open(orignal_path_output + "/ARI_" + subject_id + side, "wb") as file:
+            with open('%s/ARI_phase_%s%s.pickle' % (projected_dir_original, subject_id, side), "wb") as file:
                 pickle.dump(phase_original, file)
 
         if config.merge_flag:

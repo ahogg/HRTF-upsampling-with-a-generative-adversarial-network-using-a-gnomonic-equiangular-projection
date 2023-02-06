@@ -17,7 +17,7 @@ def test(config, val_prefetcher):
     path = config.path
     device = torch.device(config.device_name if (
             torch.cuda.is_available() and ngpu > 0) else "cpu")
-    model = Generator().to(device=device)
+    model = Generator(upscale_factor=config.upscale_factor).to(device=device)
     print("Build SRGAN model successfully.")
 
     # Load super-resolution model weights

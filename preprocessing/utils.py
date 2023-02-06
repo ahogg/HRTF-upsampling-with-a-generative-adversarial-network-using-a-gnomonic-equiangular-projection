@@ -9,6 +9,7 @@ import scipy
 from scipy.signal import hilbert
 import shutil
 from pathlib import Path
+import re
 
 from preprocessing.barycentric_calcs import calc_barycentric_coordinates, get_triangle_vertices
 from preprocessing.convert_coordinates import convert_cube_to_sphere
@@ -24,19 +25,10 @@ def clear_create_directories(config):
     Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
     Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
 
-    orignal_path_output = config.train_hrtf_dir + '/original/'
-    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
-    orignal_path_output = config.valid_hrtf_dir + '/original/'
-    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
-
-    orignal_path_output = config.train_hrtf_dir + '/original/phase/'
-    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
-    orignal_path_output = config.valid_hrtf_dir + '/original/phase/'
-    shutil.rmtree(Path(orignal_path_output), ignore_errors=True)
-    Path(orignal_path_output).mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(Path(config.train_original_hrtf_dir), ignore_errors=True)
+    shutil.rmtree(Path(config.valid_original_hrtf_dir), ignore_errors=True)
+    Path(config.train_original_hrtf_dir).mkdir(parents=True, exist_ok=True)
+    Path(config.valid_original_hrtf_dir).mkdir(parents=True, exist_ok=True)
 
 
 def load_data(data_folder, load_function, domain, side, subject_ids=None):
@@ -60,37 +52,43 @@ def merge_left_right_hrtfs(input_dir, output_dir):
     hrtf_file_names = [os.path.join(input_dir, hrtf_file_name) for hrtf_file_name in os.listdir(input_dir)
                        if os.path.isfile(os.path.join(input_dir, hrtf_file_name))]
 
-    hrtf_dict_left = {}
-    hrtf_dict_right = {}
+    data_dict_left = {}
+    data_dict_right = {}
     for f in hrtf_file_names:
+
+        file_ext = re.findall(re.escape(input_dir) + '/(.*)_[0-9]*[a-z]*.pickle$', f)[0]
+
         with open(f, "rb") as file:
-            hrtf = pickle.load(file)
+            data = pickle.load(file)
 
         # add to dict for right ears
-        if f[-5:] == 'right':
-            subj_id = int(f.split("_")[-1][:-5])
-            hrtf_dict_right[subj_id] = hrtf
+        if re.search(re.escape(input_dir)+'/.*_[0-9]*right.pickle$', f):
+            subj_id = int(re.findall(re.escape(input_dir)+'/.*_([0-9]*)right.pickle$', f)[0])
+            if file_ext not in data_dict_right:
+                data_dict_right[file_ext] = {}
+            data_dict_right[file_ext][subj_id] = data
         # add to dict for left ears
-        elif f[-4:] == 'left':
-            subj_id = int(f.split("_")[-1][:-4])
-            hrtf_dict_left[subj_id] = hrtf
+        elif re.search(re.escape(input_dir)+'/.*_[0-9]*left.pickle$', f):
+            subj_id = int(re.findall(re.escape(input_dir)+'/.*_([0-9]*)left.pickle$', f)[0])
+            if file_ext not in data_dict_left:
+                data_dict_left[file_ext] = {}
+            data_dict_left[file_ext][subj_id] = data
 
-    for subj_id in hrtf_dict_right.keys():
-        hrtf_r = hrtf_dict_right[subj_id]
-        hrtf_l = hrtf_dict_left[subj_id]
-        dimension = hrtf_r.ndim-1
-        hrtf_merged = torch.cat((hrtf_l, hrtf_r), dim=dimension)
-        with open(output_dir + "/ARI_" + str(subj_id), "wb") as file:
-            pickle.dump(hrtf_merged, file)
+    for file_ext in data_dict_right.keys():
+        for subj_id in data_dict_right[file_ext].keys():
+            hrtf_r = data_dict_right[file_ext][subj_id]
+            hrtf_l = data_dict_left[file_ext][subj_id]
+            dimension = hrtf_r.ndim-1
+            hrtf_merged = torch.cat((hrtf_l, hrtf_r), dim=dimension)
+            with open('%s/%s_%s.pickle' % (output_dir, file_ext, subj_id), "wb") as file:
+                pickle.dump(hrtf_merged, file)
 
 
 def merge_files(config):
     merge_left_right_hrtfs(config.train_hrtf_dir, config.train_hrtf_merge_dir)
     merge_left_right_hrtfs(config.valid_hrtf_dir, config.valid_hrtf_merge_dir)
-    merge_left_right_hrtfs(config.train_hrtf_dir + '/original', config.train_hrtf_merge_dir + '/original')
-    merge_left_right_hrtfs(config.valid_hrtf_dir + '/original', config.valid_hrtf_merge_dir + '/original')
-    merge_left_right_hrtfs(config.train_hrtf_dir + '/original/phase', config.train_hrtf_merge_dir + '/original/phase')
-    merge_left_right_hrtfs(config.valid_hrtf_dir + '/original/phase', config.valid_hrtf_merge_dir + '/original/phase')
+    merge_left_right_hrtfs(config.train_original_hrtf_dir, config.train_original_hrtf_merge_dir)
+    merge_left_right_hrtfs(config.valid_original_hrtf_dir, config.valid_original_hrtf_merge_dir)
 
 
 def get_hrtf_from_ds(ds, index):
@@ -213,28 +211,34 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output, 
     sf.write_sofa(sofa_path_output, sofa)
 
 
-def convert_to_sofa(hrtf_dir, config, cube, sphere, phase_dir=None):
-    # Clear/Create directories
-    if phase_dir is None:
-        sofa_path_output = hrtf_dir + '/sofa/'
+def convert_to_sofa(hrtf_dir, config, cube, sphere, phase_ext='_phase', use_phase=False, mag_ext='_mag'):
+    if use_phase:
+        sofa_path_output = hrtf_dir + '/sofa_with_phase/'
     else:
-        sofa_path_output = phase_dir + '/sofa/'
-    shutil.rmtree(Path(sofa_path_output), ignore_errors=True)
-    Path(sofa_path_output).mkdir(parents=True, exist_ok=True)
+        sofa_path_output = hrtf_dir + '/sofa_min_phase/'
 
     hrtf_file_names = [hrtf_file_name for hrtf_file_name in os.listdir(hrtf_dir)
-                       if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name))]
+                        if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name)) and phase_ext not in hrtf_file_name]
+    phase_file_names = [phase_file_name for phase_file_name in os.listdir(hrtf_dir)
+                        if os.path.isfile(os.path.join(hrtf_dir, phase_file_name)) and phase_ext in phase_file_name]
+
+    # Clear/Create directories
+    shutil.rmtree(Path(sofa_path_output), ignore_errors=True)
+    Path(sofa_path_output).mkdir(parents=True, exist_ok=True)
 
     for f in hrtf_file_names:
         with open(os.path.join(hrtf_dir, f), "rb") as hrtf_file:
             hrtf = pickle.load(hrtf_file)
-            sofa_filename_output = os.path.basename(hrtf_file.name) + '.sofa'
+            sofa_filename_output = os.path.basename(hrtf_file.name).replace('.pickle', '.sofa').replace(mag_ext,'')
             sofa_output = sofa_path_output + sofa_filename_output
 
-            if phase_dir != None:
-                with open(os.path.join(hrtf_dir, f), "rb") as phase_file:
-                    phase = pickle.load(phase_file)
-                    save_sofa(hrtf, config, cube, sphere, sofa_output, phase)
+            if use_phase:
+                for f_phase in phase_file_names:
+                    f_phase = f_phase.replace(phase_ext, mag_ext)
+                    if f_phase == f:
+                        with open(os.path.join(hrtf_dir, f), "rb") as phase_file:
+                            phase = pickle.load(phase_file)
+                            save_sofa(hrtf, config, cube, sphere, sofa_output, phase)
             else:
                 save_sofa(hrtf, config, cube, sphere, sofa_output)
 
@@ -242,10 +246,10 @@ def convert_to_sofa(hrtf_dir, config, cube, sphere, phase_dir=None):
 def gen_sofa_preprocess(config, cube, sphere, sphere_original):
     convert_to_sofa(config.train_hrtf_merge_dir, config, cube, sphere)
     convert_to_sofa(config.valid_hrtf_merge_dir, config, cube, sphere)
-    convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
-    convert_to_sofa(config.valid_hrtf_merge_dir + '/original', config, cube=None, sphere=sphere_original)
-    convert_to_sofa(config.train_hrtf_merge_dir + '/original', config, phase_dir=config.train_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
-    convert_to_sofa(config.valid_hrtf_merge_dir+'/original', config, phase_dir=config.valid_hrtf_merge_dir + '/original/phase', cube=None, sphere=sphere_original)
+    convert_to_sofa(config.train_original_hrtf_merge_dir, config, cube=None, sphere=sphere_original)
+    convert_to_sofa(config.valid_original_hrtf_merge_dir, config, cube=None, sphere=sphere_original)
+    convert_to_sofa(config.train_original_hrtf_merge_dir, config, use_phase=True, cube=None, sphere=sphere_original)
+    convert_to_sofa(config.valid_original_hrtf_merge_dir, config, use_phase=True, cube=None, sphere=sphere_original)
 
 
 def gen_sofa_baseline(config, barycentric_data_folder, cube, sphere):

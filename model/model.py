@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 from model.custom_conv import CubeSpherePadding2D, CubeSphereConv2D
 nbins = 256
 
@@ -109,9 +110,10 @@ class Discriminator(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, upscale_factor) -> None:
         super(Generator, self).__init__()
         self.ngf = 512
+        self.num_upsampling_blocks = int(np.log(upscale_factor)/np.log(2))
 
         # First conv layer.
         self.conv_block1 = nn.Sequential(
@@ -135,7 +137,7 @@ class Generator(nn.Module):
 
         # Upscale block
         upsampling = []
-        for _ in range(2):
+        for _ in range(self.num_upsampling_blocks):
             upsampling.append(UpsampleBlock(self.ngf))
         self.upsampling = nn.Sequential(*upsampling)
 
