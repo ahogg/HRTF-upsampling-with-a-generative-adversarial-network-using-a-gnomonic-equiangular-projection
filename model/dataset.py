@@ -44,7 +44,12 @@ class TrainValidHRTFDataset(Dataset):
             hr_hrtf = torch.permute(hrtf, (3, 0, 1, 2))
 
         # downsample hrtf
-        lr_hrtf = torch.nn.functional.interpolate(hr_hrtf, scale_factor=1 / self.upscale_factor)
+        if self.upscale_factor == self.hrtf_size:
+            mid_pos = int(self.hrtf_size/2)
+            lr_hrtf = hr_hrtf[:, :, mid_pos, mid_pos, None, None]
+        else:
+            lr_hrtf = torch.nn.functional.interpolate(hr_hrtf, scale_factor=1 / self.upscale_factor)
+
 
         return {"lr": lr_hrtf, "hr": hr_hrtf, "filename": self.hrtf_file_names[batch_index]}
 

@@ -23,24 +23,25 @@ class Config:
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
 
-        self.train_hrtf_dir = self.data_dirs_path + '/data_test/hr/train'
-        self.valid_hrtf_dir = self.data_dirs_path + '/data_test/hr/valid'
-        self.train_original_hrtf_dir = self.data_dirs_path + '/data_test/original/train'
-        self.valid_original_hrtf_dir = self.data_dirs_path + '/data_test/original/valid'
+        self.data_dir = '/data'
+        self.train_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/train'
+        self.valid_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/valid'
+        self.train_original_hrtf_dir = self.data_dirs_path + self.data_dir + '/original/train'
+        self.valid_original_hrtf_dir = self.data_dirs_path + self.data_dir + '/original/valid'
 
-        self.train_hrtf_merge_dir = self.data_dirs_path + '/data_test/hr_merge/train'
-        self.valid_hrtf_merge_dir = self.data_dirs_path + '/data_test/hr_merge/valid'
-        self.train_original_hrtf_merge_dir = self.data_dirs_path + '/data_test/merge_original/train'
-        self.valid_original_hrtf_merge_dir = self.data_dirs_path + '/data_test/merge_original/valid'
+        self.train_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/hr_merge/train'
+        self.valid_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/hr_merge/valid'
+        self.train_original_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/merge_original/train'
+        self.valid_original_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/merge_original/valid'
 
-        self.mean_std_filename = self.data_dirs_path + '/data_test/mean_std_filename'
-        self.barycentric_hrtf_dir = self.data_dirs_path + '/data_test/barycentric/valid'
+        self.mean_std_filename = self.data_dirs_path + self.data_dir + '/mean_std_filename'
+        self.barycentric_hrtf_dir = self.data_dirs_path + self.data_dir + '/barycentric/valid'
 
         # Data processing parameters
         self.merge_flag = True
         self.gen_sofa_flag = True
         self.hrtf_size = 16
-        self.upscale_factor = 2  # can only take values: 2, 4 ,8, 16
+        self.upscale_factor = 16  # can only take values: 2, 4 ,8, 16
         self.train_samples_ratio = 0.8
 
         # Training hyperparams
