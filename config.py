@@ -21,9 +21,11 @@ class Config:
             self.raw_hrtf_dir = Path('/home/aos13/HRTF_datasets')
 
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
+        self.valid_path = f'{self.data_dirs_path}/runs/{self.tag}/valid'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
 
         self.data_dir = '/data'
+        self.baseline_dir = '/baseline'
         self.train_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/train'
         self.valid_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/valid'
         self.train_original_hrtf_dir = self.data_dirs_path + self.data_dir + '/original/train'
@@ -35,7 +37,7 @@ class Config:
         self.valid_original_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/merge_original/valid'
 
         self.mean_std_filename = self.data_dirs_path + self.data_dir + '/mean_std_filename'
-        self.barycentric_hrtf_dir = self.data_dirs_path + self.data_dir + '/barycentric/valid'
+        self.barycentric_hrtf_dir = self.data_dirs_path + self.baseline_dir + '/barycentric/valid'
 
         # Data processing parameters
         self.merge_flag = True

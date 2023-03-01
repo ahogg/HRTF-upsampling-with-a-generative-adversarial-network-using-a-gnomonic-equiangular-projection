@@ -14,9 +14,13 @@ from preprocessing.barycentric_calcs import get_triangle_vertices, calc_barycent
 PI_4 = np.pi / 4
 
 
-def run_barycentric_interpolation(config, barycentric_data_folder):
-    vaild_data_paths = glob.glob(config.valid_hrtf_merge_dir + '/ARI_*')
-    vaild_data_file_names = ['/' + os.path.basename(x) for x in vaild_data_paths]
+def run_barycentric_interpolation(config, barycentric_data_folder, subject_file=None):
+
+    if subject_file is None:
+        valid_data_paths = glob.glob(config.valid_hrtf_merge_dir + '/ARI_*')
+        valid_data_file_names = ['/' + os.path.basename(x) for x in valid_data_paths]
+    else:
+        valid_data_file_names = ['/' + subject_file]
 
     barycentric_output_path = config.barycentric_hrtf_dir + barycentric_data_folder
 
@@ -28,13 +32,12 @@ def run_barycentric_interpolation(config, barycentric_data_folder):
     with open(filename, "rb") as f:
         (cube_coords, sphere_coords, euclidean_sphere_triangles, euclidean_sphere_coeffs) = pickle.load(f)
 
-    for file_name in vaild_data_file_names:
+    for file_name in valid_data_file_names:
         with open(config.valid_hrtf_merge_dir + file_name, "rb") as f:
             hr_hrtf = pickle.load(f)
 
-        lr_hrtf = torch.permute(
-            torch.nn.functional.interpolate(torch.permute(hr_hrtf, (3, 0, 1, 2)), scale_factor=1 / config.upscale_factor),
-            (1, 2, 3, 0))
+        lr_hrtf = torch.permute(torch.nn.functional.interpolate(torch.permute(hr_hrtf, (3, 0, 1, 2)),
+                                                                scale_factor=1 / config.upscale_factor), (1, 2, 3, 0))
 
         sphere_coords_lr = []
         sphere_coords_lr_index = []
@@ -51,8 +54,10 @@ def run_barycentric_interpolation(config, barycentric_data_folder):
         euclidean_sphere_coeffs = []
         for sphere_coord in sphere_coords:
             # based on cube coordinates, get indices for magnitudes list of lists
-            triangle_vertices = get_triangle_vertices(elevation=sphere_coord[0], azimuth=sphere_coord[1], sphere_coords=sphere_coords_lr)
-            coeffs = calc_barycentric_coordinates(elevation=sphere_coord[0], azimuth=sphere_coord[1], closest_points=triangle_vertices)
+            triangle_vertices = get_triangle_vertices(elevation=sphere_coord[0], azimuth=sphere_coord[1],
+                                                      sphere_coords=sphere_coords_lr)
+            coeffs = calc_barycentric_coordinates(elevation=sphere_coord[0], azimuth=sphere_coord[1],
+                                                  closest_points=triangle_vertices)
             euclidean_sphere_triangles.append(triangle_vertices)
             euclidean_sphere_coeffs.append(coeffs)
 
@@ -62,5 +67,7 @@ def run_barycentric_interpolation(config, barycentric_data_folder):
 
         with open(barycentric_output_path + file_name, "wb") as file:
             pickle.dump(barycentric_hr, file)
+
+        print('Created barycentric baseline %s' % file_name.replace('/', ''))
 
     return cube_coords, sphere_coords

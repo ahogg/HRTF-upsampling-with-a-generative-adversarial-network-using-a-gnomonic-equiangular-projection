@@ -11,7 +11,7 @@ from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
 from preprocessing.utils import interpolate_fft, generate_euclidean_cube, gen_sofa_baseline, \
-    load_data, merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories
+    load_data, merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories, convert_to_sofa
 from model import util
 from baselines.barycentric_interpolation import run_barycentric_interpolation
 
@@ -121,15 +121,23 @@ def main(mode, tag, using_hpc):
         util.initialise_folders(tag, overwrite=True)
         test(config, test_prefetcher)
 
+        with open(projection_filename, "rb") as file:
+            cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
+
+        if config.gen_sofa_flag:
+            convert_to_sofa(config.valid_path, config, cube, sphere)
+            print('Created valid sofa files')
+
     elif mode == 'baseline':
         no_nodes = str(int(5 * (config.hrtf_size / config.upscale_factor) ** 2))
         no_full_nodes = str(int(5 * config.hrtf_size ** 2))
 
         barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
-        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder)
+        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder, subject_file='ARI_mag_16.pickle')
 
         if config.gen_sofa_flag:
             gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)
+            print('Created barycentric baseline sofa files')
 
 
 if __name__ == '__main__':
