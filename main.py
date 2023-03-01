@@ -14,6 +14,7 @@ from preprocessing.utils import interpolate_fft, generate_euclidean_cube, gen_so
     load_data, merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories, convert_to_sofa
 from model import util
 from baselines.barycentric_interpolation import run_barycentric_interpolation
+from evaluation.lsd_metric_evaluation import run_lsd_evaluation
 
 PI_4 = np.pi / 4
 
@@ -138,6 +139,9 @@ def main(mode, tag, using_hpc):
         if config.gen_sofa_flag:
             gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)
             print('Created barycentric baseline sofa files')
+
+        barycentric_output_path = config.barycentric_hrtf_dir + barycentric_data_folder
+        run_lsd_evaluation(config, barycentric_output_path)
 
 
 if __name__ == '__main__':
