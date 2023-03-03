@@ -10,6 +10,7 @@ class Config:
 
     def __init__(self, tag, using_hpc):
         self.tag = tag
+        self.dataset = 'ARI'
 
         if using_hpc:
             # HPC data dirs
@@ -24,7 +25,7 @@ class Config:
         self.valid_path = f'{self.data_dirs_path}/runs/{self.tag}/valid'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
 
-        self.data_dir = '/data'
+        self.data_dir = '/data/' + self.dataset
         self.baseline_dir = '/baseline'
         self.train_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/train'
         self.valid_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/valid'
@@ -36,14 +37,14 @@ class Config:
         self.train_original_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/merge_original/train'
         self.valid_original_hrtf_merge_dir = self.data_dirs_path + self.data_dir + '/merge_original/valid'
 
-        self.mean_std_filename = self.data_dirs_path + self.data_dir + '/mean_std_filename'
+        self.mean_std_filename = self.data_dirs_path + self.data_dir + '/mean_std_' + self.dataset
         self.barycentric_hrtf_dir = self.data_dirs_path + self.baseline_dir + '/barycentric/valid'
 
         # Data processing parameters
         self.merge_flag = True
         self.gen_sofa_flag = True
         self.hrtf_size = 16
-        self.upscale_factor = 16  # can only take values: 2, 4 ,8, 16
+        self.upscale_factor = 4  # can only take values: 2, 4 ,8, 16
         self.train_samples_ratio = 0.8
 
         # Training hyperparams

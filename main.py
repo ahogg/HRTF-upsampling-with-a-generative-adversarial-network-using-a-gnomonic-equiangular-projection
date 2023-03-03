@@ -2,8 +2,8 @@ import argparse
 import os
 import pickle
 import torch
-from hrtfdata.torch.full import ARI
 import numpy as np
+import importlib
 
 from config import Config
 from model.train import train
@@ -26,11 +26,14 @@ np.random.seed(0)
 def main(mode, tag, using_hpc):
     # Initialise Config object
     config = Config(tag, using_hpc=using_hpc)
-    data_dir = config.raw_hrtf_dir / 'ARI'
+    data_dir = config.raw_hrtf_dir / config.dataset
     print(os.getcwd())
     print(data_dir)
 
-    projection_filename = "projection_coordinates/ARI_projection_" + str(config.hrtf_size)
+    imp = importlib.import_module('hrtfdata.torch.full')
+    load_function = getattr(imp, config.dataset)
+
+    projection_filename = "projection_coordinates/%s_projection_%s" % (config.dataset, str(config.hrtf_size))
     if using_hpc:
         projection_filename = "HRTF-GANs/" + projection_filename
 
@@ -38,7 +41,7 @@ def main(mode, tag, using_hpc):
         # Must be run in this mode once per dataset, finds barycentric coordinates for each point in the cubed sphere
 
         # No need to load the entire dataset in this case
-        ds: ARI = load_data(data_folder=data_dir, load_function=ARI, domain='time', side='left', subject_ids='first')
+        ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='left', subject_ids='first')
         # need to use protected member to get this data, no getters
         cs = CubedSphere(sphere_coords=ds._selected_angles)
         generate_euclidean_cube(cs.get_sphere_coords(), projection_filename, edge_len=config.hrtf_size)
@@ -47,7 +50,7 @@ def main(mode, tag, using_hpc):
         # Interpolates data to find HRIRs on cubed sphere, then FFT to obtain HRTF, finally splits data into train and
         # val sets and saves processed data
 
-        ds: ARI = load_data(data_folder=data_dir, load_function=ARI, domain='time', side='both')
+        ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='both')
         # need to use protected member to get this data, no getters
         cs = CubedSphere(sphere_coords=ds._selected_angles)
         with open(projection_filename, "rb") as file:
@@ -83,13 +86,13 @@ def main(mode, tag, using_hpc):
 
             subject_id = str(ds[i]['group'])
             side = ds[i]['target']
-            with open('%s/ARI_mag_%s%s.pickle' % (projected_dir, subject_id, side), "wb") as file:
+            with open('%s/%s_mag_%s%s.pickle' % (projected_dir, config.dataset, subject_id, side), "wb") as file:
                 pickle.dump(clean_hrtf, file)
 
-            with open('%s/ARI_mag_%s%s.pickle' % (projected_dir_original, subject_id, side), "wb") as file:
+            with open('%s/%s_mag_%s%s.pickle' % (projected_dir_original, config.dataset, subject_id, side), "wb") as file:
                 pickle.dump(hrtf_original, file)
 
-            with open('%s/ARI_phase_%s%s.pickle' % (projected_dir_original, subject_id, side), "wb") as file:
+            with open('%s/%s_phase_%s%s.pickle' % (projected_dir_original, config.dataset, subject_id, side), "wb") as file:
                 pickle.dump(phase_original, file)
 
         if config.merge_flag:
@@ -122,6 +125,8 @@ def main(mode, tag, using_hpc):
         util.initialise_folders(tag, overwrite=True)
         test(config, test_prefetcher)
 
+        run_lsd_evaluation(config, config.valid_path)
+
         with open(projection_filename, "rb") as file:
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
@@ -134,7 +139,7 @@ def main(mode, tag, using_hpc):
         no_full_nodes = str(int(5 * config.hrtf_size ** 2))
 
         barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
-        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder, subject_file='ARI_mag_16.pickle')
+        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder, subject_file=config.dataset+'_mag_16.pickle')
 
         if config.gen_sofa_flag:
             gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)

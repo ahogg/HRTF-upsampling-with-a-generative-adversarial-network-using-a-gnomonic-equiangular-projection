@@ -418,3 +418,4 @@ def plot_grad_flow(named_parameters, path):
                 Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
     plt.tight_layout()
     plt.savefig(f'{path}/grad_flow.png')
+

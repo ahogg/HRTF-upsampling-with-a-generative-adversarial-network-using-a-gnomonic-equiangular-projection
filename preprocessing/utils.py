@@ -434,7 +434,8 @@ def remove_itd(hrir, pre_window, length):
             over_threshold_index = i
             break
     else:
-        raise RuntimeError("Kalman Filter did not find a time where post fit residual exceeded threshold.")
+        print("RuntimeWarning: ITD not removed (Kalman filter did not find a time where post fit residual exceeded threshold).")
+        return hrir
 
     # create fade window in order to taper off HRIR towards the beginning and end
     fadeout_len = 50

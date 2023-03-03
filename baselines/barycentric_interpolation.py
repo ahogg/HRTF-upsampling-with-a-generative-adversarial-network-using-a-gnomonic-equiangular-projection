@@ -17,7 +17,7 @@ PI_4 = np.pi / 4
 def run_barycentric_interpolation(config, barycentric_data_folder, subject_file=None):
 
     if subject_file is None:
-        valid_data_paths = glob.glob(config.valid_hrtf_merge_dir + '/ARI_*')
+        valid_data_paths = glob.glob('%s/%s_*' % (config.valid_hrtf_merge_dir, config.dataset))
         valid_data_file_names = ['/' + os.path.basename(x) for x in valid_data_paths]
     else:
         valid_data_file_names = ['/' + subject_file]
@@ -28,7 +28,7 @@ def run_barycentric_interpolation(config, barycentric_data_folder, subject_file=
     shutil.rmtree(Path(barycentric_output_path), ignore_errors=True)
     Path(barycentric_output_path).mkdir(parents=True, exist_ok=True)
 
-    filename = 'projection_coordinates/ARI_projection_%s' % config.hrtf_size
+    filename = 'projection_coordinates/%s_projection_%s' % (config.dataset, config.hrtf_size)
     with open(filename, "rb") as f:
         (cube_coords, sphere_coords, euclidean_sphere_triangles, euclidean_sphere_coeffs) = pickle.load(f)
 
