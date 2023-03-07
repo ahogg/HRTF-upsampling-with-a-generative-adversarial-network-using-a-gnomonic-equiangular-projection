@@ -33,10 +33,6 @@ def main(mode, tag, using_hpc):
     imp = importlib.import_module('hrtfdata.torch.full')
     load_function = getattr(imp, config.dataset)
 
-    projection_filename = "projection_coordinates/%s_projection_%s" % (config.dataset, str(config.hrtf_size))
-    if using_hpc:
-        projection_filename = "HRTF-GANs/" + projection_filename
-
     if mode == 'generate_projection':
         # Must be run in this mode once per dataset, finds barycentric coordinates for each point in the cubed sphere
 
@@ -44,7 +40,7 @@ def main(mode, tag, using_hpc):
         ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='left', subject_ids='first')
         # need to use protected member to get this data, no getters
         cs = CubedSphere(sphere_coords=ds._selected_angles)
-        generate_euclidean_cube(cs.get_sphere_coords(), projection_filename, edge_len=config.hrtf_size)
+        generate_euclidean_cube(cs.get_sphere_coords(), config.projection_filename, edge_len=config.hrtf_size)
 
     elif mode == 'preprocess':
         # Interpolates data to find HRIRs on cubed sphere, then FFT to obtain HRTF, finally splits data into train and
@@ -53,7 +49,7 @@ def main(mode, tag, using_hpc):
         ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='both')
         # need to use protected member to get this data, no getters
         cs = CubedSphere(sphere_coords=ds._selected_angles)
-        with open(projection_filename, "rb") as file:
+        with open(config.projection_filename, "rb") as file:
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
         # Clear/Create directories
@@ -127,7 +123,7 @@ def main(mode, tag, using_hpc):
 
         run_lsd_evaluation(config, config.valid_path)
 
-        with open(projection_filename, "rb") as file:
+        with open(config.projection_filename, "rb") as file:
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
         if config.gen_sofa_flag:
@@ -139,7 +135,7 @@ def main(mode, tag, using_hpc):
         no_full_nodes = str(int(5 * config.hrtf_size ** 2))
 
         barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
-        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder, subject_file=config.dataset+'_mag_16.pickle')
+        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder)
 
         if config.gen_sofa_flag:
             gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)
@@ -168,5 +164,3 @@ if __name__ == '__main__':
     else:
         tag = 'test'
     main(args.mode, tag, hpc)
-
-    # main('train', 'localtrain', using_hpc=False)

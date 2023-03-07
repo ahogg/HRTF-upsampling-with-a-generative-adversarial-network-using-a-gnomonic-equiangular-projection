@@ -10,8 +10,16 @@ class Config:
 
     def __init__(self, tag, using_hpc):
         self.tag = tag
-        self.dataset = 'ARI'
+        self.dataset = 'SONICOM'
 
+        # Data processing parameters
+        self.merge_flag = True
+        self.gen_sofa_flag = True
+        self.hrtf_size = 16
+        self.upscale_factor = 4  # can only take values: 2, 4 ,8, 16
+        self.train_samples_ratio = 0.8
+
+        # Data dirs
         if using_hpc:
             # HPC data dirs
             self.data_dirs_path = '/rds/general/user/aos13/home/HRTF-GANs-27Sep22-prep-for-publication'
@@ -24,9 +32,10 @@ class Config:
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
         self.valid_path = f'{self.data_dirs_path}/runs/{self.tag}/valid'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
+        self.projection_filename = self.data_dirs_path + '/projection_coordinates/' + self.dataset + '_projection_' + str(self.hrtf_size)
 
         self.data_dir = '/data/' + self.dataset
-        self.baseline_dir = '/baseline'
+        self.baseline_dir = '/baseline/' + self.dataset
         self.train_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/train'
         self.valid_hrtf_dir = self.data_dirs_path + self.data_dir + '/hr/valid'
         self.train_original_hrtf_dir = self.data_dirs_path + self.data_dir + '/original/train'
@@ -39,13 +48,6 @@ class Config:
 
         self.mean_std_filename = self.data_dirs_path + self.data_dir + '/mean_std_' + self.dataset
         self.barycentric_hrtf_dir = self.data_dirs_path + self.baseline_dir + '/barycentric/valid'
-
-        # Data processing parameters
-        self.merge_flag = True
-        self.gen_sofa_flag = True
-        self.hrtf_size = 16
-        self.upscale_factor = 4  # can only take values: 2, 4 ,8, 16
-        self.train_samples_ratio = 0.8
 
         # Training hyperparams
         self.batch_size = 8
