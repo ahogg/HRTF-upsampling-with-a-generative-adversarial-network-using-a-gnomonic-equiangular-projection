@@ -15,12 +15,11 @@ import time
 from plot import plot_losses, plot_magnitude_spectrums
 
 
-def train(config, train_prefetcher, overwrite=True):
+def train(config, train_prefetcher):
     """ Train the generator and discriminator models
 
     :param config: Config object containing model hyperparameters
     :param train_prefetcher: prefetcher for training data
-    :param overwrite: whether to overwrite existing model outputs
     """
     # Calculate how many batches of data are in each Epoch
     batches = len(train_prefetcher)
@@ -65,9 +64,10 @@ def train(config, train_prefetcher, overwrite=True):
     ild_mean = 3.6508303231127868
     ild_std = 0.5261339271318863
 
-    if not overwrite:
-        netG.load_state_dict(torch.load(f"{path}/Gen.pt"))
-        netD.load_state_dict(torch.load(f"{path}/Disc.pt"))
+    if config.start_with_existing_model:
+        print(f'Initialized weights using an existing model - {config.existing_model_path}')
+        netG.load_state_dict(torch.load(f'{config.existing_model_path}/Gen.pt'))
+        netD.load_state_dict(torch.load(f'{config.existing_model_path}/Disc.pt'))
 
     train_losses_G = []
     train_losses_G_adversarial = []

@@ -111,14 +111,14 @@ def main(mode, tag, using_hpc):
         train_prefetcher, test_prefetcher = load_dataset(config, mean=None, std=None)
         print("Loaded all datasets successfully.")
 
-        util.initialise_folders(tag, overwrite=True)
-        train(config, train_prefetcher, overwrite=True)
+        util.initialise_folders(config, overwrite=True)
+        train(config, train_prefetcher)
 
     elif mode == 'test':
         _, test_prefetcher = load_dataset(config, mean=None, std=None)
         print("Loaded all datasets successfully.")
 
-        util.initialise_folders(tag, overwrite=True)
+        util.initialise_folders(config, overwrite=True)
         test(config, test_prefetcher)
 
         run_lsd_evaluation(config, config.valid_path)

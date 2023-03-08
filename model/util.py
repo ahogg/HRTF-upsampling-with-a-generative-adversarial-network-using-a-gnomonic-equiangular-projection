@@ -1,6 +1,7 @@
-import numpy as np
 import torch
 import os
+import shutil
+from pathlib import Path
 
 from torch.utils.data import DataLoader
 from torchvision.transforms import transforms
@@ -8,21 +9,15 @@ from torchvision.transforms import transforms
 from model.dataset import CUDAPrefetcher, TrainValidHRTFDataset, CPUPrefetcher
 
 
-def initialise_folders(tag, overwrite):
+def initialise_folders(config, overwrite):
     """Set up folders for given tag
 
     :param tag: label to use for run
     :param overwrite: whether to overwrite existing model outputs
     """
     if overwrite:
-        try:
-            os.mkdir(f'runs')
-        except:
-            pass
-        try:
-            os.mkdir(f'runs/{tag}')
-        except:
-            pass
+        shutil.rmtree(Path(config.path), ignore_errors=True)
+        Path(config.path).mkdir(parents=True, exist_ok=True)
 
 
 def load_dataset(config, mean=None, std=None) -> [CUDAPrefetcher, CUDAPrefetcher, CUDAPrefetcher]:

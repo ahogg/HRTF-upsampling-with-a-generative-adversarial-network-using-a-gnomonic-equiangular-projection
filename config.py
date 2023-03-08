@@ -10,14 +10,14 @@ class Config:
 
     def __init__(self, tag, using_hpc):
         self.tag = tag
-        self.dataset = 'SONICOM'
+        self.dataset = 'ARI'
 
         # Data processing parameters
         self.merge_flag = True
         self.gen_sofa_flag = True
         self.hrtf_size = 16
         self.upscale_factor = 4  # can only take values: 2, 4 ,8, 16
-        self.train_samples_ratio = 0.8
+        self.train_samples_ratio = 1
 
         # Data dirs
         if using_hpc:
@@ -30,6 +30,10 @@ class Config:
             self.raw_hrtf_dir = Path('/home/aos13/HRTF_datasets')
 
         self.path = f'{self.data_dirs_path}/runs/{self.tag}'
+
+        self.start_with_existing_model = True
+        self.existing_model_path = f'{self.data_dirs_path}/runs/pub-prep-upscale-4-tl'
+
         self.valid_path = f'{self.data_dirs_path}/runs/{self.tag}/valid'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
         self.projection_filename = self.data_dirs_path + '/projection_coordinates/' + self.dataset + '_projection_' + str(self.hrtf_size)
