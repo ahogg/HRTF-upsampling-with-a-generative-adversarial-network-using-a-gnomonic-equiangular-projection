@@ -17,7 +17,7 @@ class Config:
         self.gen_sofa_flag = True
         self.hrtf_size = 16
         self.upscale_factor = 4  # can only take values: 2, 4 ,8, 16
-        self.train_samples_ratio = 1
+        self.train_samples_ratio = 0.8
 
         # Data dirs
         if using_hpc:
