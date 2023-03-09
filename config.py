@@ -30,7 +30,9 @@ class Config:
         # Data dirs
         if using_hpc:
             # HPC data dirs
-            self.data_dirs_path = '/rds/general/user/aos13/home/HRTF-GANs-27Sep22-prep-for-publication'
+
+            self.data_dirs_path = '/rds/general/user/aos13/home/HRTF-upsampling-with-a-generative-' \
+                                  'adversarial-network-using-a-gnomonic-equiangular-projection'
             self.raw_hrtf_dir = Path('/rds/general/project/sonicom/live/HRTF Datasets')
         else:
             # local data dirs
@@ -42,7 +44,7 @@ class Config:
 
         self.valid_path = f'{self.data_dirs_path}/runs/{self.tag}/valid'
         self.model_path = f'{self.data_dirs_path}/runs/{self.tag}'
-        self.projection_filename = self.data_dirs_path + '/projection_coordinates/' + self.dataset + '_projection_' + str(self.hrtf_size)
+        self.projection_filename = f'{self.data_dirs_path}/projection_coordinates/{self.dataset}_projection_{self.hrtf_size}'
 
         self.data_dir = '/data/' + self.dataset
         self.baseline_dir = '/baseline/' + self.dataset
