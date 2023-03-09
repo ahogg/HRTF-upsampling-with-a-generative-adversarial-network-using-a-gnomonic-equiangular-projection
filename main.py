@@ -118,7 +118,6 @@ def main(mode, tag, using_hpc):
         _, test_prefetcher = load_dataset(config, mean=None, std=None)
         print("Loaded all datasets successfully.")
 
-        util.initialise_folders(config, overwrite=True)
         test(config, test_prefetcher)
 
         run_lsd_evaluation(config, config.valid_path)
@@ -162,5 +161,5 @@ if __name__ == '__main__':
     if args.tag:
         tag = args.tag
     else:
-        tag = 'test'
+        tag = None
     main(args.mode, tag, hpc)
