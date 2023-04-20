@@ -27,7 +27,12 @@ To test the GAN on the valuation set run:
 main.py test --hpc False --tag ari-upscale-4
 ```
 
-To compare the performance against the barycentric baseline run:
+To compare the performance against the barycentric baseline and the HRTF selection baseline run:
 ```sh
-main.py baseline --hpc False --tag ari-upscale-4
+main.py barycentric_baseline --hpc False 
 ```
+and 
+```sh
+main.py hrtf_selection_baseline --hpc False
+```
+respectively.
