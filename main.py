@@ -10,11 +10,12 @@ from model.train import train
 from model.test import test
 from model.util import load_dataset
 from preprocessing.cubed_sphere import CubedSphere
-from preprocessing.utils import interpolate_fft, generate_euclidean_cube, gen_sofa_baseline, \
-    load_data, merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories, convert_to_sofa
+from preprocessing.utils import interpolate_fft, generate_euclidean_cube, convert_to_sofa, \
+     merge_files, gen_sofa_preprocess, get_hrtf_from_ds, clear_create_directories
 from model import util
 from baselines.barycentric_interpolation import run_barycentric_interpolation
-from evaluation.lsd_metric_evaluation import run_lsd_evaluation
+from baselines.hrtf_selection import run_hrtf_selection
+from evaluation.evaluation import run_lsd_evaluation, run_localisation_evaluation
 
 PI_4 = np.pi / 4
 
@@ -23,33 +24,32 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-def main(mode, tag, using_hpc):
+def main(config, mode):
     # Initialise Config object
-    config = Config(tag, using_hpc=using_hpc)
     data_dir = config.raw_hrtf_dir / config.dataset
     print(os.getcwd())
-    print(data_dir)
+    print(config.dataset)
 
-    imp = importlib.import_module('hrtfdata.torch.full')
+    imp = importlib.import_module('hrtfdata.full')
     load_function = getattr(imp, config.dataset)
 
     if mode == 'generate_projection':
         # Must be run in this mode once per dataset, finds barycentric coordinates for each point in the cubed sphere
-
         # No need to load the entire dataset in this case
-        ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='left', subject_ids='first')
+        ds = load_function(data_dir, features_spec={'hrirs': {'samplerate': config.hrir_samplerate, 'side': 'left', 'domain': 'time'}}, subject_ids='first')
         # need to use protected member to get this data, no getters
-        cs = CubedSphere(sphere_coords=ds._selected_angles)
-        generate_euclidean_cube(cs.get_sphere_coords(), config.projection_filename, edge_len=config.hrtf_size)
+        cs = CubedSphere(mask=ds[0]['features'].mask, row_angles=ds.row_angles, column_angles=ds.column_angles)
+        generate_euclidean_cube(config, cs.get_sphere_coords(), edge_len=config.hrtf_size)
 
     elif mode == 'preprocess':
         # Interpolates data to find HRIRs on cubed sphere, then FFT to obtain HRTF, finally splits data into train and
         # val sets and saves processed data
+        ds = load_function(data_dir, features_spec={'hrirs': {'samplerate': config.hrir_samplerate, 'side': 'both', 'domain': 'time'}})
+        cs = CubedSphere(mask=ds[0]['features'].mask, row_angles=ds.row_angles, column_angles=ds.column_angles)
 
-        ds: load_function = load_data(data_folder=data_dir, load_function=load_function, domain='time', side='both')
         # need to use protected member to get this data, no getters
-        cs = CubedSphere(sphere_coords=ds._selected_angles)
-        with open(config.projection_filename, "rb") as file:
+        projection_filename = f'{config.projection_dir}/{config.dataset}_projection_{config.hrtf_size}'
+        with open(projection_filename, "rb") as file:
             cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
 
         # Clear/Create directories
@@ -60,18 +60,24 @@ def main(mode, tag, using_hpc):
         train_sample = np.random.choice(list(set(ds.subject_ids)), train_size, replace=False)
 
         # collect all train_hrtfs to get mean and sd
-        train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, 128))
+        train_hrtfs = torch.empty(size=(2 * train_size, 5, config.hrtf_size, config.hrtf_size, config.nbins_hrtf))
         j = 0
         for i in range(len(ds)):
             if i % 10 == 0:
                 print(f"HRTF {i} out of {len(ds)} ({round(100 * i / len(ds))}%)")
-            clean_hrtf = interpolate_fft(cs, ds[i]['features'], sphere, sphere_triangles, sphere_coeffs, cube,
-                                         config.hrtf_size)
 
-            hrtf_original, phase_original, sphere_original = get_hrtf_from_ds(ds, i)
+            # Verification that HRTF is valid
+            if np.isnan(ds[i]['features']).any():
+                print(f'HRTF (Subject ID: {i}) contains nan values')
+                continue
+
+            features = ds[i]['features'].data.reshape(*ds[i]['features'].shape[:-2], -1)
+            clean_hrtf = interpolate_fft(config, cs, features, sphere, sphere_triangles, sphere_coeffs,
+                                             cube, fs_original=ds.hrir_samplerate, edge_len=config.hrtf_size)
+            hrtf_original, phase_original, sphere_original = get_hrtf_from_ds(config, ds, i)
 
             # save cleaned hrtfdata
-            if ds[i]['group'] in train_sample:
+            if ds.subject_ids[i] in train_sample:
                 projected_dir = config.train_hrtf_dir
                 projected_dir_original = config.train_original_hrtf_dir
                 train_hrtfs[j] = clean_hrtf
@@ -80,8 +86,8 @@ def main(mode, tag, using_hpc):
                 projected_dir = config.valid_hrtf_dir
                 projected_dir_original = config.valid_original_hrtf_dir
 
-            subject_id = str(ds[i]['group'])
-            side = ds[i]['target']
+            subject_id = str(ds.subject_ids[i])
+            side = ds.sides[i]
             with open('%s/%s_mag_%s%s.pickle' % (projected_dir, config.dataset, subject_id, side), "wb") as file:
                 pickle.dump(clean_hrtf, file)
 
@@ -108,7 +114,7 @@ def main(mode, tag, using_hpc):
 
     elif mode == 'train':
         # Trains the GANs, according to the parameters specified in Config
-        train_prefetcher, test_prefetcher = load_dataset(config, mean=None, std=None)
+        train_prefetcher, _ = load_dataset(config, mean=None, std=None)
         print("Loaded all datasets successfully.")
 
         util.initialise_folders(config, overwrite=True)
@@ -121,28 +127,48 @@ def main(mode, tag, using_hpc):
         test(config, test_prefetcher)
 
         run_lsd_evaluation(config, config.valid_path)
+        run_localisation_evaluation(config, config.valid_path)
 
-        with open(config.projection_filename, "rb") as file:
-            cube, sphere, sphere_triangles, sphere_coeffs = pickle.load(file)
-
-        if config.gen_sofa_flag:
-            convert_to_sofa(config.valid_path, config, cube, sphere)
-            print('Created valid sofa files')
-
-    elif mode == 'baseline':
-        no_nodes = str(int(5 * (config.hrtf_size / config.upscale_factor) ** 2))
-        no_full_nodes = str(int(5 * config.hrtf_size ** 2))
-
-        barycentric_data_folder = '/barycentric_interpolated_data_%s_%s' % (no_nodes, no_full_nodes)
-        cube, sphere = run_barycentric_interpolation(config, barycentric_data_folder)
+    elif mode == 'barycentric_baseline':
+        barycentric_data_folder = f'/barycentric_interpolated_data_{config.upscale_factor}'
+        barycentric_output_path = config.barycentric_hrtf_dir + barycentric_data_folder
+        cube, sphere = run_barycentric_interpolation(config, barycentric_output_path)
 
         if config.gen_sofa_flag:
-            gen_sofa_baseline(config, barycentric_data_folder, cube, sphere)
+            convert_to_sofa(barycentric_output_path, config, cube, sphere)
             print('Created barycentric baseline sofa files')
 
-        barycentric_output_path = config.barycentric_hrtf_dir + barycentric_data_folder
-        run_lsd_evaluation(config, barycentric_output_path)
+        config.path = config.barycentric_hrtf_dir
 
+        file_ext = f'lsd_errors_barycentric_interpolated_data_{config.upscale_factor}.pickle'
+        run_lsd_evaluation(config, barycentric_output_path, file_ext)
+
+        file_ext = f'loc_errors_barycentric_interpolated_data_{config.upscale_factor}.pickle'
+        run_localisation_evaluation(config, barycentric_output_path, file_ext)
+
+    elif mode == 'hrtf_selection_baseline':
+
+        run_hrtf_selection(config, config.hrtf_selection_dir)
+
+        projection_filename = f'{config.projection_dir}/{config.dataset}_projection_{config.hrtf_size}'
+        with open(projection_filename, "rb") as f:
+            (cube, sphere, _, _) = pickle.load(f)
+
+        if config.gen_sofa_flag:
+            convert_to_sofa(config.hrtf_selection_dir, config, cube, sphere)
+            print('Created barycentric baseline sofa files')
+
+        config.path = config.hrtf_selection_dir
+
+        file_ext = f'lsd_errors_hrtf_selection_minimum_data.pickle'
+        run_lsd_evaluation(config, config.hrtf_selection_dir, file_ext, hrtf_selection='minimum')
+        file_ext = f'loc_errors_hrtf_selection_minimum_data.pickle'
+        run_localisation_evaluation(config, config.hrtf_selection_dir, file_ext, hrtf_selection='minimum')
+
+        file_ext = f'lsd_errors_hrtf_selection_maximum_data.pickle'
+        run_lsd_evaluation(config, config.hrtf_selection_dir, file_ext, hrtf_selection='maximum')
+        file_ext = f'loc_errors_hrtf_selection_maximum_data.pickle'
+        run_localisation_evaluation(config, config.hrtf_selection_dir, file_ext, hrtf_selection='maximum')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -162,4 +188,6 @@ if __name__ == '__main__':
         tag = args.tag
     else:
         tag = None
-    main(args.mode, tag, hpc)
+
+    config = Config(tag, using_hpc=hpc)
+    main(config, args.mode)

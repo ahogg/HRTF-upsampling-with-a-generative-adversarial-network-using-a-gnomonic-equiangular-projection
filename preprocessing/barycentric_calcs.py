@@ -9,8 +9,8 @@ def calc_dist_haversine(elevation1, azimuth1, elevation2, azimuth2):
     adapted from CalculateDistance_HaversineFormula in the 3DTune-In toolkit
     https://github.com/3DTune-In/3dti_AudioToolkit/blob/master/3dti_Toolkit/BinauralSpatializer/HRTF.cpp#L1052
     """
-    increment_azimuth = azimuth1 - azimuth2
-    increment_elevation = elevation1 - elevation2
+    increment_azimuth = abs(azimuth1 - azimuth2)
+    increment_elevation = abs(elevation1 - elevation2)
     sin2_inc_elev = np.sin(increment_elevation / 2) ** 2
     cos_elev1 = np.cos(elevation1)
     cos_elev2 = np.cos(elevation2)
@@ -31,7 +31,10 @@ def calc_spherical_excess(elevation1, azimuth1, elevation2, azimuth2, elevation3
              np.tan(0.5 * (semiperimeter - dist12)) *
              np.tan(0.5 * (semiperimeter - dist13)) *
              np.tan(0.5 * (semiperimeter - dist23)))
-    excess = 4 * np.arctan(np.sqrt(inner if inner >= 0 else 0))
+    if inner >= 0:
+        excess = 4 * np.arctan(np.sqrt(inner))
+    else:
+        excess = 1
     return excess
 
 
@@ -114,7 +117,7 @@ def get_triangle_vertices(elevation, azimuth, sphere_coords):
         # failing that, examine all possible triangles
         # possible triangles is sorted from shortest total distance to longest total distance
         # possible_triangles = get_possible_triangles(len(point_distances) - 1, point_distances)
-        max_no_points = 500
+        max_no_points = 300
         max_vertex_index = len(point_distances) - 1 if len(point_distances) - 1 < max_no_points else max_no_points
         possible_triangles = get_possible_triangles(max_vertex_index, point_distances)
         for v0, v1, v2, _ in possible_triangles:
@@ -126,7 +129,7 @@ def get_triangle_vertices(elevation, azimuth, sphere_coords):
                 break
         else:
             # sometimes no triangle can be formed, so it directly uses the closest three points as the candidate nodes.
-            selected_triangle_vertices = triangle_vertices
+            selected_triangle_vertices = [point_distances[0][:2]]
 
     # if no triangles enclose the point, this will return none
     return selected_triangle_vertices
@@ -135,14 +138,18 @@ def get_triangle_vertices(elevation, azimuth, sphere_coords):
 def calc_barycentric_coordinates(elevation, azimuth, closest_points):
     """Calculate alpha, beta, and gamma coefficients for barycentric interpolation (modified for spherical triangle)"""
     # not zero indexing var names in order to match equations in 3D Tune-In Toolkit paper
-    elev1, elev2, elev3 = closest_points[0][0], closest_points[1][0], closest_points[2][0]
-    azi1, azi2, azi3 = closest_points[0][1], closest_points[1][1], closest_points[2][1]
+    if len(closest_points) == 3:
+        elev1, elev2, elev3 = closest_points[0][0], closest_points[1][0], closest_points[2][0]
+        azi1, azi2, azi3 = closest_points[0][1], closest_points[1][1], closest_points[2][1]
 
-    # modified calculations to suit spherical triangle
-    denominator = calc_spherical_excess(elev1, azi1, elev2, azi2, elev3, azi3)
+        # modified calculations to suit spherical triangle
+        denominator = calc_spherical_excess(elev1, azi1, elev2, azi2, elev3, azi3)
 
-    alpha = calc_spherical_excess(elevation, azimuth, elev2, azi2, elev3, azi3) / denominator
-    beta = calc_spherical_excess(elev1, azi1, elevation, azimuth, elev3, azi3) / denominator
-    gamma = 1 - alpha - beta
+        alpha = calc_spherical_excess(elevation, azimuth, elev2, azi2, elev3, azi3) / denominator
+        beta = calc_spherical_excess(elev1, azi1, elevation, azimuth, elev3, azi3) / denominator
+        gamma = 1 - alpha - beta
+        return {"alpha": alpha, "beta": beta, "gamma": gamma}
+    else:
+        return {"alpha": None, "beta": None, "gamma": None}
 
-    return {"alpha": alpha, "beta": beta, "gamma": gamma}
+

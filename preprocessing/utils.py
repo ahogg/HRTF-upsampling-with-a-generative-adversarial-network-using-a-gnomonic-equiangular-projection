@@ -7,9 +7,11 @@ import numpy as np
 import torch
 import scipy
 from scipy.signal import hilbert
+import scipy.signal as sps
 import shutil
 from pathlib import Path
 import re
+
 
 from preprocessing.barycentric_calcs import calc_barycentric_coordinates, get_triangle_vertices
 from preprocessing.convert_coordinates import convert_cube_to_sphere
@@ -24,24 +26,10 @@ def clear_create_directories(config):
     shutil.rmtree(Path(config.valid_hrtf_dir), ignore_errors=True)
     Path(config.train_hrtf_dir).mkdir(parents=True, exist_ok=True)
     Path(config.valid_hrtf_dir).mkdir(parents=True, exist_ok=True)
-
     shutil.rmtree(Path(config.train_original_hrtf_dir), ignore_errors=True)
     shutil.rmtree(Path(config.valid_original_hrtf_dir), ignore_errors=True)
     Path(config.train_original_hrtf_dir).mkdir(parents=True, exist_ok=True)
     Path(config.valid_original_hrtf_dir).mkdir(parents=True, exist_ok=True)
-
-
-def load_data(data_folder, load_function, domain, side, subject_ids=None):
-    """Wrapper for the data loading functions from the hrtfdata package"""
-    if subject_ids:
-        return load_function(data_folder,
-                             feature_spec={"hrirs": {'side': side, 'domain': domain}},
-                             target_spec={"side": {}},
-                             group_spec={"subject": {}}, subject_ids=subject_ids)
-    return load_function(data_folder,
-                         feature_spec={"hrirs": {'side': side, 'domain': domain}},
-                         target_spec={"side": {}},
-                         group_spec={"subject": {}})
 
 
 def merge_left_right_hrtfs(input_dir, output_dir):
@@ -75,6 +63,13 @@ def merge_left_right_hrtfs(input_dir, output_dir):
             data_dict_left[file_ext][subj_id] = data
 
     for file_ext in data_dict_right.keys():
+        missing_subj_ids =  list(set(data_dict_right[file_ext].keys()) - set(data_dict_left[file_ext].keys()))
+        if len(missing_subj_ids) > 0:
+            print('Excluding subject IDs where both ears do not exist (IDs: %s)' % ', '.join(map(str, missing_subj_ids)))
+            for missing_subj_id in missing_subj_ids:
+                data_dict_right[file_ext].pop(missing_subj_id, None)
+                data_dict_left[file_ext].pop(missing_subj_id, None)
+
         for subj_id in data_dict_right[file_ext].keys():
             hrtf_r = data_dict_right[file_ext][subj_id]
             hrtf_l = data_dict_left[file_ext][subj_id]
@@ -91,7 +86,7 @@ def merge_files(config):
     merge_left_right_hrtfs(config.valid_original_hrtf_dir, config.valid_original_hrtf_merge_dir)
 
 
-def get_hrtf_from_ds(ds, index):
+def get_hrtf_from_ds(config, ds, index):
     coordinates = ds.row_angles, ds.column_angles
     position_grid = np.stack(np.meshgrid(*coordinates, indexing='ij'), axis=-1)
 
@@ -99,12 +94,12 @@ def get_hrtf_from_ds(ds, index):
     hrir_temp = []
     for row_idx, row in enumerate(ds.row_angles):
         for column_idx, column in enumerate(ds.column_angles):
-            if not any(np.ma.getmaskarray(ds[index]['features'][row_idx][column_idx])):
+            if not any(np.ma.getmaskarray(ds[index]['features'][row_idx][column_idx].flatten())):
                 az_temp = np.radians(position_grid[row_idx][column_idx][0])
                 el_temp = np.radians(position_grid[row_idx][column_idx][1])
                 sphere_temp.append([el_temp, az_temp])
-                hrir_temp.append(np.ma.getdata(ds[index]['features'][row_idx][column_idx]))
-    hrtf_temp, phase_temp = calc_hrtf(hrir_temp)
+                hrir_temp.append(np.ma.getdata(ds[index]['features'][row_idx][column_idx]).flatten())
+    hrtf_temp, phase_temp = calc_hrtf(config, hrir_temp)
 
     return torch.tensor(np.array(hrtf_temp)), torch.tensor(np.array(phase_temp)), sphere_temp
 
@@ -131,7 +126,7 @@ def add_itd(az, el, hrir, side, fs=48000, r=0.0875, c=343):
     return delayed_hrir, sofa_delay
 
 
-def gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase=None, right_phase=None):
+def gen_sofa_file(config, sphere_coords, left_hrtf, right_hrtf, count, left_phase=None, right_phase=None):
     el = np.degrees(sphere_coords[count][0])
     az = np.degrees(sphere_coords[count][1])
     source_position = [az + 360 if az < 0 else az, el, 1.2]
@@ -143,8 +138,8 @@ def gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase=None, 
         right_hrtf[right_hrtf == 0.0] = 1.0e-08
         right_phase = np.imag(-hilbert(np.log(np.abs(right_hrtf))))
 
-    left_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(left_hrtf[:127]))) * np.exp(1j * left_phase))[:128]
-    right_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(right_hrtf[:127]))) * np.exp(1j * right_phase))[:128]
+    left_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(left_hrtf[:config.nbins_hrtf-1]))) * np.exp(1j * left_phase))[:config.nbins_hrtf]
+    right_hrir = scipy.fft.irfft(np.concatenate((np.array([0]), np.abs(right_hrtf[:config.nbins_hrtf-1]))) * np.exp(1j * right_phase))[:config.nbins_hrtf]
 
     left_hrir, left_sample_delay = add_itd(az, el, left_hrir, side='left')
     right_hrir, right_sample_delay = add_itd(az, el, right_hrir, side='right')
@@ -162,31 +157,31 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output, 
     left_full_phase = None
     right_full_phase = None
     if cube_coords is None:
-        left_full_hrtf = clean_hrtf[:, :128]
-        right_full_hrtf = clean_hrtf[:, 128:]
+        left_full_hrtf = clean_hrtf[:, :config.nbins_hrtf]
+        right_full_hrtf = clean_hrtf[:, config.nbins_hrtf:]
 
         if phase is not None:
-            left_full_phase = phase[:, :128]
-            right_full_phase = phase[:, 128:]
+            left_full_phase = phase[:, :config.nbins_hrtf]
+            right_full_phase = phase[:, config.nbins_hrtf:]
 
         for count in range(len(sphere_coords)):
             left_hrtf = np.array(left_full_hrtf[count])
             right_hrtf = np.array(right_full_hrtf[count])
 
             if phase is None:
-                source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count)
+                source_position, full_hrir, delay = gen_sofa_file(config, sphere_coords, left_hrtf, right_hrtf, count)
             else:
                 left_phase = np.array(left_full_phase[count])
                 right_phase = np.array(right_full_phase[count])
-                source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count, left_phase, right_phase)
+                source_position, full_hrir, delay = gen_sofa_file(config, sphere_coords, left_hrtf, right_hrtf, count, left_phase, right_phase)
 
             full_hrirs.append(full_hrir)
             source_positions.append(source_position)
             delays.append(delay)
 
     else:
-        left_full_hrtf = clean_hrtf[:, :, :, :128]
-        right_full_hrtf = clean_hrtf[:, :, :, 128:]
+        left_full_hrtf = clean_hrtf[:, :, :, :config.nbins_hrtf]
+        right_full_hrtf = clean_hrtf[:, :, :, config.nbins_hrtf:]
 
         count = 0
         for panel, x, y in cube_coords:
@@ -197,7 +192,7 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output, 
 
             left_hrtf = np.array(left_full_hrtf[i, j, k])
             right_hrtf = np.array(right_full_hrtf[i, j, k])
-            source_position, full_hrir, delay = gen_sofa_file(sphere_coords, left_hrtf, right_hrtf, count)
+            source_position, full_hrir, delay = gen_sofa_file(config, sphere_coords, left_hrtf, right_hrtf, count)
             full_hrirs.append(full_hrir)
             source_positions.append(source_position)
             delays.append(delay)
@@ -205,7 +200,7 @@ def save_sofa(clean_hrtf, config, cube_coords, sphere_coords, sofa_path_output, 
 
     sofa = sf.Sofa("SimpleFreeFieldHRIR")
     sofa.Data_IR = full_hrirs
-    sofa.Data_SamplingRate = 48000
+    sofa.Data_SamplingRate = config.hrir_samplerate
     sofa.Data_Delay = delays
     sofa.SourcePosition = source_positions
     sf.write_sofa(sofa_path_output, sofa)
@@ -252,11 +247,7 @@ def gen_sofa_preprocess(config, cube, sphere, sphere_original):
     convert_to_sofa(config.valid_original_hrtf_merge_dir, config, use_phase=True, cube=None, sphere=sphere_original)
 
 
-def gen_sofa_baseline(config, barycentric_data_folder, cube, sphere):
-    convert_to_sofa(config.barycentric_hrtf_dir + barycentric_data_folder, config, cube, sphere)
-
-
-def generate_euclidean_cube(measured_coords, filename, edge_len=16):
+def generate_euclidean_cube(config, measured_coords, edge_len=16):
     """Calculate barycentric coordinates for projection based on a specified cube sphere edge length and a set of
     measured coordinates, finally save them to the file"""
     cube_coords, sphere_coords = [], []
@@ -276,9 +267,11 @@ def generate_euclidean_cube(measured_coords, filename, edge_len=16):
         euclidean_sphere_triangles.append(triangle_vertices)
         euclidean_sphere_coeffs.append(coeffs)
 
-        print(f"Data point {count} out of {len(sphere_coords)} ({round(100 * count / len(sphere_coords))}%)")
+        print(f"Data point {count+1} out of {len(sphere_coords)} ({round(100 * count / len(sphere_coords))}%)")
 
     # save euclidean_cube, euclidean_sphere, euclidean_sphere_triangles, euclidean_sphere_coeffs
+    Path(config.projection_dir).mkdir(parents=True, exist_ok=True)
+    filename = f'{config.projection_dir}/{config.dataset}_projection_{config.hrtf_size}'
     with open(filename, "wb") as file:
         pickle.dump((cube_coords, sphere_coords, euclidean_sphere_triangles, euclidean_sphere_coeffs), file)
 
@@ -322,14 +315,17 @@ def calc_interpolated_feature(time_domain_flag, triangle_vertices, coeffs, all_c
     for p in triangle_vertices:
         if time_domain_flag:
             features_p = get_feature_for_point(p[0], p[1], all_coords, subject_features)
-            features_no_ITD = remove_itd(features_p, 10, 256)
+            features_no_ITD = remove_itd(features_p, int(len(features_p)*0.04), len(features_p))
             features.append(features_no_ITD)
         else:
             features_p = get_feature_for_point_tensor(p[0], p[1], all_coords, subject_features)
             features.append(features_p)
 
     # based on equation 6 in "3D Tune-In Toolkit: An open-source library for real-time binaural spatialisation"
-    interpolated_feature = coeffs["alpha"] * features[0] + coeffs["beta"] * features[1] + coeffs["gamma"] * features[2]
+    if len(features) == 3:
+        interpolated_feature = coeffs["alpha"] * features[0] + coeffs["beta"] * features[1] + coeffs["gamma"] * features[2]
+    else:
+        interpolated_feature = features[0]
 
     return interpolated_feature
 
@@ -357,13 +353,14 @@ def calc_all_interpolated_features(cs, features, euclidean_sphere, euclidean_sph
     return selected_feature_interpolated
 
 
-def calc_hrtf(hrirs):
+def calc_hrtf(config, hrirs):
     """FFT to obtain HRTF from HRIR"""
     magnitudes = []
     phases = []
+
     for hrir in hrirs:
         # remove value that corresponds to 0 Hz
-        hrtf = scipy.fft.rfft(hrir)[1:]
+        hrtf = scipy.fft.rfft(hrir, config.nbins_hrtf*2)[1:]
         magnitude = abs(hrtf)
         phase = [cmath.phase(x) for x in hrtf]
         magnitudes.append(magnitude)
@@ -371,7 +368,7 @@ def calc_hrtf(hrirs):
     return magnitudes, phases
 
 
-def interpolate_fft(cs, features, sphere, sphere_triangles, sphere_coeffs, cube, edge_len):
+def interpolate_fft(config, cs, features, sphere, sphere_triangles, sphere_coeffs, cube, fs_original, edge_len):
     """Combine all data processing steps into one function
 
     :param cs: Cubed sphere object associated with dataset
@@ -385,10 +382,16 @@ def interpolate_fft(cs, features, sphere, sphere_triangles, sphere_coeffs, cube,
     :param cube: A list of locations of the gridded cubed sphere points to be interpolated, given as (panel, x, y)
     :param edge_len: Edge length of gridded cube
     """
+
     # interpolated_hrirs is a list of interpolated HRIRs corresponding to the points specified in load_sphere and
     # load_cube, all three lists share the same ordering
     interpolated_hrirs = calc_all_interpolated_features(cs, features, sphere, sphere_triangles, sphere_coeffs)
-    magnitudes, phases = calc_hrtf(interpolated_hrirs)
+
+    # Resample data so that training and validation sets are created at the same fs ('config.hrir_samplerate').
+    # number_of_samples = round(np.shape(interpolated_hrirs)[-1] * float(config.hrir_samplerate) / fs_original)
+    # interpolated_hrirs_resampled = sps.resample(np.array(interpolated_hrirs).T, number_of_samples).T
+
+    magnitudes, phases = calc_hrtf(config, interpolated_hrirs)
 
     # create empty list of lists of lists and initialize counter
     magnitudes_raw = [[[[] for _ in range(edge_len)] for _ in range(edge_len)] for _ in range(5)]
@@ -406,6 +409,15 @@ def interpolate_fft(cs, features, sphere, sphere_triangles, sphere_coeffs, cube,
 
     # convert list of numpy arrays into a single array, such that converting into tensor is faster
     return torch.tensor(np.array(magnitudes_raw))
+
+
+def trim_hrir(hrir, start, stop):
+    if start < 0:
+        hrir_padded = np.pad(hrir, (abs(start), 0), mode='constant')
+        trimmed_hrir = hrir_padded[:stop]
+    else:
+        trimmed_hrir = hrir[start:stop]
+    return trimmed_hrir
 
 
 def remove_itd(hrir, pre_window, length):
@@ -448,14 +460,17 @@ def remove_itd(hrir, pre_window, length):
 
     # trim HRIR based on first time threshold is exceeded
     start = over_threshold_index - pre_window
-    stop = start + length
+    if start < 0:
+        stop = length
+    else:
+        stop = start + length
 
     if len(hrir) >= stop:
-        trimmed_hrir = hrir[start:stop]
+        trimmed_hrir = trim_hrir(hrir, start, stop)
         fade_window = fadein + [1] * (length - fadein_len - fadeout_len) + fadeout
         faded_hrir = trimmed_hrir * fade_window
     else:
-        trimmed_hrir = hrir[start:]
+        trimmed_hrir = trim_hrir(hrir, start, -1)
         fade_window = fadein + [1] * (len(trimmed_hrir) - fadein_len - fadeout_len) + fadeout
         faded_hrir = trimmed_hrir * fade_window
         zero_pad = [0] * (length - len(trimmed_hrir))

@@ -27,6 +27,11 @@ def train(config, train_prefetcher):
     # Assign torch device
     ngpu = config.ngpu
     path = config.path
+
+    nbins = config.nbins_hrtf
+    if config.merge_flag:
+        nbins = config.nbins_hrtf * 2
+
     device = torch.device(config.device_name if (
             torch.cuda.is_available() and ngpu > 0) else "cpu")
     print(f'Using {ngpu} GPUs')
@@ -37,13 +42,12 @@ def train(config, train_prefetcher):
     batch_size, beta1, beta2, num_epochs, lr_gen, lr_dis, critic_iters = config.get_train_params()
 
     # get list of positive frequencies of HRTF for plotting magnitude spectrum
-    hrir_samplerate = 48000.0
-    all_freqs = scipy.fft.fftfreq(256, 1 / hrir_samplerate)
+    all_freqs = scipy.fft.fftfreq(256, 1 / config.hrir_samplerate)
     pos_freqs = all_freqs[all_freqs >= 0]
 
     # Define Generator network and transfer to CUDA
-    netG = Generator(upscale_factor=config.upscale_factor).to(device)
-    netD = Discriminator().to(device)
+    netG = Generator(upscale_factor=config.upscale_factor, nbins=nbins).to(device)
+    netD = Discriminator(nbins=nbins).to(device)
     if ('cuda' in str(device)) and (ngpu > 1):
         netD = (nn.DataParallel(netD, list(range(ngpu)))).to(device)
         netG = nn.DataParallel(netG, list(range(ngpu))).to(device)
@@ -149,7 +153,7 @@ def train(config, train_prefetcher):
                 # Calculate adversarial loss
                 output = netD(sr).view(-1)
 
-                unweighted_content_loss_G = content_criterion(sr, hr, sd_mean, sd_std, ild_mean, ild_std)
+                unweighted_content_loss_G = content_criterion(config, sr, hr, sd_mean, sd_std, ild_mean, ild_std)
                 content_loss_G = config.content_weight * unweighted_content_loss_G
                 adversarial_loss_G = config.adversarial_weight * adversarial_criterion(output, label)
 
@@ -205,7 +209,7 @@ def train(config, train_prefetcher):
             magnitudes_interpolated = torch.permute(sr.detach().cpu()[i_plot], (1, 2, 3, 0))
 
             plot_label = filename[i_plot].split('/')[-1] + '_epoch' + str(epoch)
-            plot_magnitude_spectrums(pos_freqs, magnitudes_real[:, :, :, :128], magnitudes_interpolated[:, :, :, :128],
+            plot_magnitude_spectrums(pos_freqs, magnitudes_real[:, :, :, :config.nbins_hrtf], magnitudes_interpolated[:, :, :, :config.nbins_hrtf],
                                      "left", "training", plot_label, path, log_scale_magnitudes=True)
 
     plot_losses(train_losses_D, train_losses_G,

@@ -2,7 +2,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 from model.custom_conv import CubeSpherePadding2D, CubeSphereConv2D
-nbins = 256
 
 # based on https://github.com/Lornatang/SRGAN-PyTorch/blob/main/model.py
 
@@ -53,12 +52,13 @@ class UpsampleBlock(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self):
+    def __init__(self, nbins: int):
         super(Discriminator, self).__init__()
+        self.nbins = nbins
         self.features = nn.Sequential(
             # input size. (nbin) x 5 x 16 x 16
             CubeSpherePadding2D(1),
-            CubeSphereConv2D(nbins, 64, (3, 3), (1, 1), bias=True),
+            CubeSphereConv2D(self.nbins, 64, (3, 3), (1, 1), bias=True),
             nn.LeakyReLU(0.2, True),
             # state size. (64) x 5 x 16 x 16
             CubeSpherePadding2D(1),
@@ -70,7 +70,7 @@ class Discriminator(nn.Module):
             CubeSphereConv2D(64, 128, (3, 3), (1, 1), bias=False),
             nn.BatchNorm3d(128),
             nn.LeakyReLU(0.2, True),
-            # state size. (128) x 5 x 16 x 16
+            # state size. (nbins) x 5 x (hrtf_size) x (hrtf_size)
             CubeSpherePadding2D(1),
             CubeSphereConv2D(128, 128, (3, 3), (2, 2), bias=False),
             nn.BatchNorm3d(128),
@@ -110,15 +110,16 @@ class Discriminator(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self, upscale_factor) -> None:
+    def __init__(self, upscale_factor: int, nbins: int) -> None:
         super(Generator, self).__init__()
+        self.nbins = nbins
         self.ngf = 512
         self.num_upsampling_blocks = int(np.log(upscale_factor)/np.log(2))
 
         # First conv layer.
         self.conv_block1 = nn.Sequential(
             CubeSpherePadding2D(1),
-            CubeSphereConv2D(nbins, self.ngf, (3, 3), (1, 1)),
+            CubeSphereConv2D(self.nbins, self.ngf, (3, 3), (1, 1)),
             nn.PReLU(),
         )
 
@@ -144,7 +145,7 @@ class Generator(nn.Module):
         # Output layer.
         self.conv_block3 = nn.Sequential(
             CubeSpherePadding2D(1),
-            CubeSphereConv2D(self.ngf, nbins, (3, 3), (1, 1))
+            CubeSphereConv2D(self.ngf, self.nbins, (3, 3), (1, 1))
         )
 
         self.classifier = nn.Softplus()

@@ -132,17 +132,17 @@ def spectral_distortion_metric_for_plot(generated, target):
     return spectral_distortion_metric(generated, target).item()
 
 
-def ILD_metric_inner(input_spectrum, target_spectrum):
-    input_left = input_spectrum[:128]
-    input_right = input_spectrum[128:]
-    target_left = target_spectrum[:128]
-    target_right = target_spectrum[128:]
+def ILD_metric_inner(config, input_spectrum, target_spectrum):
+    input_left = input_spectrum[:config.nbins_hrtf]
+    input_right = input_spectrum[config.nbins_hrtf:]
+    target_left = target_spectrum[:config.nbins_hrtf]
+    target_right = target_spectrum[config.nbins_hrtf:]
     input_ILD = torch.mean((20 * torch.log10(input_left / input_right)))
     target_ILD = torch.mean((20 * torch.log10(target_left / target_right)))
     return torch.abs(input_ILD - target_ILD)
 
 
-def ILD_metric(generated, target, reduction="mean"):
+def ILD_metric(config, generated, target, reduction="mean"):
     batch_size = generated.size(0)
     num_panels = generated.size(2)
     height = generated.size(3)
@@ -156,7 +156,7 @@ def ILD_metric(generated, target, reduction="mean"):
         for i in range(num_panels):
             for j in range(height):
                 for k in range(width):
-                    average_over_frequencies = ILD_metric_inner(generated[b, :, i, j, k], target[b, :, i, j, k])
+                    average_over_frequencies = ILD_metric_inner(config, generated[b, :, i, j, k], target[b, :, i, j, k])
                     total_all_positions += average_over_frequencies
         ILD_metric_batch = total_all_positions / total_positions
         total_ILD_metric += ILD_metric_batch
@@ -170,7 +170,7 @@ def ILD_metric(generated, target, reduction="mean"):
     return output_loss
 
 
-def ILD_metric_for_plot(generated, target):
+def ILD_metric_for_plot(config, generated, target):
     """Computes the ILD metric for a 4 dimensional tensor (P x W x H x C)
     Where P is the number of panels (usually 5), H is height, W is width, and C is the number of frequency bins.
 
@@ -181,10 +181,10 @@ def ILD_metric_for_plot(generated, target):
     generated = torch.unsqueeze(generated, 0)
     target = torch.unsqueeze(target, 0)
 
-    return ILD_metric(generated, target).item()
+    return ILD_metric(config, generated, target).item()
 
 
-def sd_ild_loss(generated, target, sd_mean, sd_std, ild_mean, ild_std):
+def sd_ild_loss(config, generated, target, sd_mean, sd_std, ild_mean, ild_std):
     """Computes the mean sd/ild loss for a 5 dimensional tensor (N x C x P x W x H)
     Where N is the batch size, C is the number of frequency bins, P is the number of panels (usually 5),
     H is height, and W is width.
@@ -193,7 +193,7 @@ def sd_ild_loss(generated, target, sd_mean, sd_std, ild_mean, ild_std):
 
     # calculate SD and ILD metrics
     sd_metric = spectral_distortion_metric(generated, target)
-    ild_metric = ILD_metric(generated, target)
+    ild_metric = ILD_metric(config, generated, target)
 
     # normalize SD and ILD based on means/standard deviations passed to the function
     sd_norm = torch.div(torch.sub(sd_metric, sd_mean), sd_std)

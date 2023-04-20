@@ -1,11 +1,20 @@
 import os
 import pickle
 import torch
+import numpy as np
 from torch.utils.data import Dataset
 
 
 # based on https://github.com/Lornatang/SRGAN-PyTorch/blob/7292452634137d8f5d4478e44727ec1166a89125/dataset.py
+def downsample_hrtf(hr_hrtf, hrtf_size, upscale_factor):
+    # downsample hrtf
+    if upscale_factor == hrtf_size:
+        mid_pos = int(hrtf_size / 2)
+        lr_hrtf = hr_hrtf[:, :, mid_pos, mid_pos, None, None]
+    else:
+        lr_hrtf = torch.nn.functional.interpolate(hr_hrtf, scale_factor=1 / upscale_factor)
 
+    return lr_hrtf
 
 class TrainValidHRTFDataset(Dataset):
     """Define training/valid dataset loading methods.
@@ -16,11 +25,21 @@ class TrainValidHRTFDataset(Dataset):
         transform (callable): A function/transform that takes in an HRTF and returns a transformed version.
     """
 
-    def __init__(self, hrtf_dir: str, hrtf_size: int, upscale_factor: int, transform=None) -> None:
+    def __init__(self, hrtf_dir: str, hrtf_size: int, upscale_factor: int, transform=None, run_validation =True) -> None:
         super(TrainValidHRTFDataset, self).__init__()
         # Get all hrtf file names in folder
         self.hrtf_file_names = [os.path.join(hrtf_dir, hrtf_file_name) for hrtf_file_name in os.listdir(hrtf_dir)
                                 if os.path.isfile(os.path.join(hrtf_dir, hrtf_file_name))]
+
+        if run_validation:
+            valid_hrtf_file_names = []
+            for hrtf_file_name in self.hrtf_file_names:
+                file = open(hrtf_file_name, 'rb')
+                hrtf = pickle.load(file)
+                if not np.isnan(np.sum(hrtf.cpu().data.numpy())):
+                    valid_hrtf_file_names.append(hrtf_file_name)
+            self.hrtf_file_names = valid_hrtf_file_names
+
         # Specify the high-resolution hrtf size, with equal length and width
         self.hrtf_size = hrtf_size
         # How many times the high-resolution hrtf is the low-resolution hrtf
@@ -44,12 +63,7 @@ class TrainValidHRTFDataset(Dataset):
             hr_hrtf = torch.permute(hrtf, (3, 0, 1, 2))
 
         # downsample hrtf
-        if self.upscale_factor == self.hrtf_size:
-            mid_pos = int(self.hrtf_size/2)
-            lr_hrtf = hr_hrtf[:, :, mid_pos, mid_pos, None, None]
-        else:
-            lr_hrtf = torch.nn.functional.interpolate(hr_hrtf, scale_factor=1 / self.upscale_factor)
-
+        lr_hrtf = downsample_hrtf(hr_hrtf, self.hrtf_size, self.upscale_factor)
 
         return {"lr": lr_hrtf, "hr": hr_hrtf, "filename": self.hrtf_file_names[batch_index]}
 

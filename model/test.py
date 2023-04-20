@@ -13,15 +13,19 @@ def test(config, val_prefetcher):
     # source: https://github.com/Lornatang/SRGAN-PyTorch/blob/main/test.py
     # Initialize super-resolution model
     ngpu = config.ngpu
-    path = config.path
     valid_dir = config.valid_path
+
+    nbins = config.nbins_hrtf
+    if config.merge_flag:
+        nbins = config.nbins_hrtf * 2
+
     device = torch.device(config.device_name if (
             torch.cuda.is_available() and ngpu > 0) else "cpu")
-    model = Generator(upscale_factor=config.upscale_factor).to(device=device)
+    model = Generator(upscale_factor=config.upscale_factor, nbins=nbins).to(device=device)
     print("Build SRGAN model successfully.")
 
-    # Load super-resolution model weights
-    model.load_state_dict(torch.load(f"{config.model_path}/Gen.pt"))
+    # Load super-resolution model weights (always uses the CPU due to HPC having long wait times)
+    model.load_state_dict(torch.load(f"{config.model_path}/Gen.pt", map_location=torch.device('cpu')))
     print(f"Load SRGAN model weights `{os.path.abspath(config.model_path)}` successfully.")
 
     param_size = 0
@@ -39,8 +43,7 @@ def test(config, val_prefetcher):
     print('model size: {:.3f}MB'.format(size_all_mb))
 
     # get list of positive frequencies of HRTF for plotting magnitude spectrum
-    hrir_samplerate = 48000.0
-    all_freqs = scipy.fft.fftfreq(256, 1 / hrir_samplerate)
+    all_freqs = scipy.fft.fftfreq(256, 1 / config.hrir_samplerate)
     pos_freqs = all_freqs[all_freqs >= 0]
 
     # Start the verification mode of the model.
