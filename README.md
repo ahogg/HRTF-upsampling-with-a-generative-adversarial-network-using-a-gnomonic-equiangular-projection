@@ -1,5 +1,5 @@
 # HRTF upsampling with a generative adversarial network using a gnomonic equiangular projection
-
+> :warning: **The latest code that was used for the LAP challenge ([sonicom.eu/lap-challenge](https://www.sonicom.eu/lap-challenge/)) is available here**: https://github.com/ahogg/Exploring-the-impact-of-transfer-learning-on-GAN-based-HRTF-upsampling/tree/single_node_upsampling
 
 A. O. T. Hogg, M. Jenkins, H. Liu, I. Squires, S. J. Cooper and L. Picinali: HRTF upsampling with a generative adversarial network using a gnomonic equiangular projection. *In: Proc. IEEE/ACM Transactions on Audio Speech and Language Processing*, vol. 32, pp. 2085-2099, 2024.
 
